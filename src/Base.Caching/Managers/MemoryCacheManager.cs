@@ -183,5 +183,15 @@ namespace Base.Caching.Managers
 
             _disposed = true;
         }
+
+        public Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Action action)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

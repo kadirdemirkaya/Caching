@@ -4,6 +4,7 @@ using Base.Caching.Key;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Caching.Test
 {
@@ -53,7 +54,7 @@ namespace Caching.Test
             _serviceProvider = _services.BuildServiceProvider();
         }
 
-        private IStaticCacheManager GetCacheManager() => _serviceProvider.GetRequiredService<IStaticCacheManager>();
+        private ICacheManager GetCacheManager() => _serviceProvider.GetRequiredService<ICacheManager>();
         private IHttpContextAccessor GetHttpContext() => _serviceProvider.GetRequiredService<IHttpContextAccessor>();
 
         [Test]
@@ -113,7 +114,7 @@ namespace Caching.Test
             }
             Assert.Pass();
         }
-        public async Task ProductUpdateMethod(IStaticCacheManager _staticMemoryCacheManager)
+        public async Task ProductUpdateMethod(ICacheManager _staticMemoryCacheManager)
         {
             await _staticMemoryCacheManager.SetAsync(CacheKey.Create("lock.key2"), "lock_string_product_update_method");
             await Task.Delay(2000);
@@ -168,6 +169,60 @@ namespace Caching.Test
                     await Console.Out.WriteLineAsync("Cache_Lock_Method1 DE KILIT YOKTU");
                 else
                     await Console.Out.WriteLineAsync("Cache_Lock_Method1 DE KITLI VARDI");
+            }
+        }
+
+
+        [Test]
+        public async Task Cache_Lock_Concurrency_Test()
+        {
+            var _staticDistributedCacheManager = GetCacheManager();
+
+            Student student = new()
+            {
+                Age = 0,
+                Name = "Ahmet",
+                Role = "User"
+            };
+
+            var tasks = new List<Task>();
+            tasks.Add(Process1(_staticDistributedCacheManager, student));
+            tasks.Add(Process2(_staticDistributedCacheManager, student));
+
+            await Task.WhenAll(tasks);
+
+            Assert.Pass();
+        }
+
+        public async Task Process1(ICacheManager _staticDistributedCacheManager, Student student)
+        {
+            for (int i = 0; i < 10000; i++)
+            {
+                bool response = await _locker.PerformActionWithLockAsync("lock.key", TimeSpan.FromSeconds(30), async () =>
+                {
+                    student.Age += 1;
+                });
+
+                if (response)
+                    await Console.Out.WriteLineAsync("REDIS IS [LOCKED] IN RIGHT NOW");
+                else
+                    await Console.Out.WriteLineAsync("REDIS IS [NOT LOCKED] IN RIGHT NOW");
+            }
+        }
+
+        public async Task Process2(ICacheManager _staticDistributedCacheManager, Student student)
+        {
+            for (int i = 0; i < 10000; i++)
+            {
+                bool response = await _locker.PerformActionWithLockAsync("lock.key", TimeSpan.FromSeconds(30), async () =>
+                {
+                    Console.WriteLine("Student Age : " + student.Age);
+                });
+
+                if (response)
+                    await Console.Out.WriteLineAsync("REDIS IS [LOCKED] IN RIGHT NOW");
+                else
+                    await Console.Out.WriteLineAsync("REDIS IS [NOT LOCKED] IN RIGHT NOW");
             }
         }
     }

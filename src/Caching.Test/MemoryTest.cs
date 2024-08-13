@@ -34,7 +34,7 @@ namespace Caching.Test
             _serviceProvider = _services.BuildServiceProvider();
         }
 
-        private IStaticCacheManager GetCacheManager() => _serviceProvider.GetRequiredService<IStaticCacheManager>();
+        private ICacheManager GetCacheManager() => _serviceProvider.GetRequiredService<ICacheManager>();
 
         [Test]
         public async Task Memory_GetCache_Test()

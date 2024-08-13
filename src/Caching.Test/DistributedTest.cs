@@ -50,7 +50,7 @@ namespace Caching.Test
             _serviceProvider = _services.BuildServiceProvider();
         }
 
-        private IStaticCacheManager GetCacheManager() => _serviceProvider.GetRequiredService<IStaticCacheManager>();
+        private ICacheManager GetCacheManager() => _serviceProvider.GetRequiredService<ICacheManager>();
         private IHttpContextAccessor GetHttpContext() => _serviceProvider.GetRequiredService<IHttpContextAccessor>();
 
         [Test]

@@ -27,13 +27,13 @@ namespace Base.Caching
                 });
 
                 services.AddScoped<ICacheLocker, DistributedCacheManager>();
-                services.AddScoped<IStaticCacheManager, DistributedCacheManager>();
+                services.AddScoped<ICacheManager, DistributedCacheManager>();
             }
             else
             {
                 services.AddMemoryCache();
                 services.AddSingleton<ICacheLocker, MemoryCacheManager>();
-                services.AddSingleton<IStaticCacheManager, MemoryCacheManager>();
+                services.AddSingleton<ICacheManager, MemoryCacheManager>();
             }
         }
     }

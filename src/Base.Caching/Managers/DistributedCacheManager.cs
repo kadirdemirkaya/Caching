@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Distributed;
 using Nito.AsyncEx;
+using StackExchange.Redis;
 using System.Text.Json;
 
 namespace Base.Caching.Managers
@@ -235,6 +236,34 @@ namespace Base.Caching.Managers
             {
                 // Kilidi kaldırma (Cache'ten çıkarma)
                 _distributedCache.Remove(resource);
+            }
+        }
+
+        public async Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action)
+        {
+            // Kilit olup olmadığını kontrol et
+            var existingLock = await _distributedCache.GetStringAsync(resource);
+            if (!string.IsNullOrEmpty(existingLock))
+            {
+                return false; // Kaynak zaten kilitli
+            }
+
+            // Kilidi koyma (Cache'e ekleme)
+            await _distributedCache.SetStringAsync(resource, resource, new DistributedCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = expirationTime
+            });
+
+            try
+            {
+                // İşlemi gerçekleştir
+                await action();
+                return true;
+            }
+            finally
+            {
+                // Kilidi kaldır (Cache'ten çıkar)
+                await _distributedCache.RemoveAsync(resource);
             }
         }
 
