@@ -1,7 +1,9 @@
 ﻿using Base.Caching;
 using Base.Caching.Key;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System.Net.Http;
 
 namespace Caching.Test
 {
@@ -17,6 +19,8 @@ namespace Caching.Test
         public static IConfiguration _configuration { get; private set; }
         public ServiceCollection _services;
         private IServiceProvider _serviceProvider;
+        private IHttpContextAccessor _httpContextAccessor;
+        private DefaultHttpContext _httpContext;
 
         [OneTimeSetUp]
         public void GlobalSetup()
@@ -30,6 +34,16 @@ namespace Caching.Test
             _configuration = builder.Build();
 
             _services.AddCaching(_configuration);
+
+            _services.AddHttpContextAccessor();
+
+            _serviceProvider = _services.BuildServiceProvider();
+
+            _httpContextAccessor = _serviceProvider.GetRequiredService<IHttpContextAccessor>();
+
+            _httpContext = new DefaultHttpContext();
+
+            _httpContextAccessor.HttpContext = _httpContext;
 
             _serviceProvider = _services.BuildServiceProvider();
         }
