@@ -1,7 +1,9 @@
-﻿using Base.Caching.Configurations;
+using Base.Caching.Configurations;
+using Base.Caching.Interfaces;
 using Base.Caching.Managers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using StackExchange.Redis;
 
 namespace Base.Caching
 {
@@ -17,6 +19,11 @@ namespace Base.Caching
 
             services.AddSingleton(cacheSection);
             services.AddSingleton(distributedCacheSection);
+            services.AddMemoryCache();
+            services.AddHttpContextAccessor();
+
+            services.AddSingleton<MemoryCacheManager>();
+            services.AddScoped<DistributedCacheManager>();
 
             if (distributedCacheSection.Enabled)
             {
@@ -26,14 +33,28 @@ namespace Base.Caching
                     options.InstanceName = distributedCacheSection.InstanceName;
                 });
 
-                services.AddScoped<ICacheLocker, DistributedCacheManager>();
-                services.AddScoped<ICacheManager, DistributedCacheManager>();
+                services.AddSingleton<IConnectionMultiplexer>(sp =>
+                {
+                    var config = ConfigurationOptions.Parse(distributedCacheSection.ConnectionString);
+                    config.AbortOnConnectFail = false;
+                    return ConnectionMultiplexer.Connect(config);
+                });
+
+                if (distributedCacheSection.HybridCacheEnabled)
+                {
+                    services.AddScoped<ICacheLocker, HybridCacheManager>();
+                    services.AddScoped<ICacheManager, HybridCacheManager>();
+                }
+                else
+                {
+                    services.AddScoped<ICacheLocker>(sp => sp.GetRequiredService<DistributedCacheManager>());
+                    services.AddScoped<ICacheManager>(sp => sp.GetRequiredService<DistributedCacheManager>());
+                }
             }
             else
             {
-                services.AddMemoryCache();
-                services.AddSingleton<ICacheLocker, MemoryCacheManager>();
-                services.AddSingleton<ICacheManager, MemoryCacheManager>();
+                services.AddSingleton<ICacheLocker>(sp => sp.GetRequiredService<MemoryCacheManager>());
+                services.AddSingleton<ICacheManager>(sp => sp.GetRequiredService<MemoryCacheManager>());
             }
         }
 
@@ -47,6 +68,11 @@ namespace Base.Caching
 
             services.AddSingleton(cacheSection);
             services.AddSingleton(distributedCacheSection);
+            services.AddMemoryCache();
+            services.AddHttpContextAccessor();
+
+            services.AddSingleton<MemoryCacheManager>();
+            services.AddScoped<DistributedCacheManager>();
 
             if (distributedCacheSection.Enabled)
             {
@@ -56,14 +82,28 @@ namespace Base.Caching
                     options.InstanceName = distributedCacheSection.InstanceName;
                 });
 
-                services.AddScoped<ICacheLocker, DistributedCacheManager>();
-                services.AddScoped<ICacheManager, DistributedCacheManager>();
+                services.AddSingleton<IConnectionMultiplexer>(sp =>
+                {
+                    var config = ConfigurationOptions.Parse(distributedCacheSection.ConnectionString);
+                    config.AbortOnConnectFail = false;
+                    return ConnectionMultiplexer.Connect(config);
+                });
+
+                if (distributedCacheSection.HybridCacheEnabled)
+                {
+                    services.AddScoped<ICacheLocker, HybridCacheManager>();
+                    services.AddScoped<ICacheManager, HybridCacheManager>();
+                }
+                else
+                {
+                    services.AddScoped<ICacheLocker>(sp => sp.GetRequiredService<DistributedCacheManager>());
+                    services.AddScoped<ICacheManager>(sp => sp.GetRequiredService<DistributedCacheManager>());
+                }
             }
             else
             {
-                services.AddMemoryCache();
-                services.AddSingleton<ICacheLocker, MemoryCacheManager>();
-                services.AddSingleton<ICacheManager, MemoryCacheManager>();
+                services.AddSingleton<ICacheLocker>(sp => sp.GetRequiredService<MemoryCacheManager>());
+                services.AddSingleton<ICacheManager>(sp => sp.GetRequiredService<MemoryCacheManager>());
             }
         }
     }

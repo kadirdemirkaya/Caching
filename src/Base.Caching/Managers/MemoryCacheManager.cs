@@ -1,4 +1,5 @@
-﻿using Base.Caching.Key;
+using Base.Caching.Interfaces;
+using Base.Caching.Key;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Primitives;
 using System.Collections.Concurrent;
@@ -11,6 +12,7 @@ namespace Base.Caching.Managers
         private readonly IMemoryCache _memoryCache;
         private static readonly ConcurrentDictionary<string, CancellationTokenSource> _prefixes = new();
         private static CancellationTokenSource _clearToken = new();
+        private static readonly ConcurrentDictionary<string, DateTime> _inMemoryLocks = new();
 
         public MemoryCacheManager(IMemoryCache memoryCache)
         {
@@ -125,20 +127,36 @@ namespace Base.Caching.Managers
 
         public bool PerformActionWithLock(string key, TimeSpan expirationTime, Action action)
         {
-            if (_memoryCache.TryGetValue(key, out _))
+            var now = DateTime.UtcNow;
+            var lockExpiry = now.Add(expirationTime);
+
+            while (true)
+            {
+                if (_inMemoryLocks.TryAdd(key, lockExpiry))
+                {
+                    break;
+                }
+
+                if (_inMemoryLocks.TryGetValue(key, out var existingExpiry))
+                {
+                    if (existingExpiry < now)
+                    {
+                        _inMemoryLocks.TryRemove(KeyValuePair.Create(key, existingExpiry));
+                        continue;
+                    }
+                }
+
                 return false;
+            }
 
             try
             {
-                _memoryCache.Set(key, key, expirationTime);
-
                 action();
-
                 return true;
             }
             finally
             {
-                _memoryCache.Remove(key);
+                _inMemoryLocks.TryRemove(KeyValuePair.Create(key, lockExpiry));
             }
         }
 
@@ -184,14 +202,39 @@ namespace Base.Caching.Managers
             _disposed = true;
         }
 
-        public Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Action action)
+        public async Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action)
         {
-            throw new NotImplementedException();
-        }
+            var now = DateTime.UtcNow;
+            var lockExpiry = now.Add(expirationTime);
 
-        public Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action)
-        {
-            throw new NotImplementedException();
+            while (true)
+            {
+                if (_inMemoryLocks.TryAdd(resource, lockExpiry))
+                {
+                    break;
+                }
+
+                if (_inMemoryLocks.TryGetValue(resource, out var existingExpiry))
+                {
+                    if (existingExpiry < now)
+                    {
+                        _inMemoryLocks.TryRemove(KeyValuePair.Create(resource, existingExpiry));
+                        continue;
+                    }
+                }
+
+                return false;
+            }
+
+            try
+            {
+                await action();
+                return true;
+            }
+            finally
+            {
+                _inMemoryLocks.TryRemove(KeyValuePair.Create(resource, lockExpiry));
+            }
         }
     }
 }
