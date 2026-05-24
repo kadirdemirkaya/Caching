@@ -1,5 +1,6 @@
 using Base.Caching;
 using Base.Caching.Helper;
+using Base.Caching.Interfaces;
 using Base.Caching.Key;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;

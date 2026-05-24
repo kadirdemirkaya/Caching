@@ -1,4 +1,5 @@
-﻿using Base.Caching;
+using Base.Caching;
+using Base.Caching.Interfaces;
 using Base.Caching.Key;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -32,6 +33,7 @@ namespace Caching.Test
                 .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
 
             _configuration = builder.Build();
+            _configuration["Caching:DistributedCache:Enabled"] = "false";
 
             _services.AddCaching(_configuration);
 

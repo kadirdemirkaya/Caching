@@ -1,8 +1,13 @@
-﻿using Base.Caching.Key;
+using Base.Caching.Configurations;
+using Base.Caching.Interfaces;
+using Base.Caching.Key;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Distributed;
-using Nito.AsyncEx;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Primitives;
 using StackExchange.Redis;
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace Base.Caching.Managers
@@ -11,19 +16,34 @@ namespace Base.Caching.Managers
     {
         private readonly IDistributedCache _distributedCache;
         private readonly PerRequestCache _perRequestCache;
-        private static readonly List<string> _keys;
-        private static readonly AsyncLock _locker;
+        private readonly IConnectionMultiplexer _connectionMultiplexer;
+        private readonly BaseDistributedCacheConfiguration _distributedCacheConfiguration;
+        private readonly IMemoryCache _memoryCache;
+        private readonly ILogger<DistributedCacheManager> _logger;
+
+        private static readonly ConcurrentDictionary<string, CancellationTokenSource> _fallbackPrefixes = new();
+        private static CancellationTokenSource _fallbackClearToken = new();
+        private static readonly ConcurrentDictionary<string, DateTime> _fallbackLocks = new();
 
         static DistributedCacheManager()
         {
-            _locker = new AsyncLock();
-            _keys = new List<string>();
+            _fallbackClearToken = new CancellationTokenSource();
         }
 
-        public DistributedCacheManager(IDistributedCache distributedCache, IHttpContextAccessor httpContextAccessor)
+        public DistributedCacheManager(
+            IDistributedCache distributedCache, 
+            IHttpContextAccessor httpContextAccessor,
+            IConnectionMultiplexer connectionMultiplexer = null,
+            BaseDistributedCacheConfiguration distributedCacheConfiguration = null,
+            IMemoryCache memoryCache = null,
+            ILogger<DistributedCacheManager> logger = null)
         {
             _distributedCache = distributedCache;
             _perRequestCache = new PerRequestCache(httpContextAccessor);
+            _connectionMultiplexer = connectionMultiplexer;
+            _distributedCacheConfiguration = distributedCacheConfiguration;
+            _memoryCache = memoryCache;
+            _logger = logger;
         }
 
         private DistributedCacheEntryOptions PrepareEntryOptions(CacheKey key)
@@ -36,36 +56,208 @@ namespace Base.Caching.Managers
             return options;
         }
 
+        private MemoryCacheEntryOptions PrepareMemoryEntryOptions(CacheKey key)
+        {
+            var options = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(key.CacheTime)
+            };
+
+            options.AddExpirationToken(new CancellationChangeToken(_fallbackClearToken.Token));
+            foreach (var keyPrefix in key.Prefixes.ToList())
+            {
+                var tokenSource = _fallbackPrefixes.GetOrAdd(keyPrefix, new CancellationTokenSource());
+                options.AddExpirationToken(new CancellationChangeToken(tokenSource.Token));
+            }
+
+            return options;
+        }
+
+        private bool IsRedisConnected => _connectionMultiplexer != null && _connectionMultiplexer.IsConnected;
+
+        private async Task ExecuteWithFallbackAsync(Func<Task> action, Func<Task> fallbackAction, string operationName)
+        {
+            try
+            {
+                if (IsRedisConnected)
+                {
+                    await action();
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Redis connection failed during {Operation}. Falling back to memory cache.", operationName);
+            }
+
+            if (fallbackAction != null)
+            {
+                await fallbackAction();
+            }
+        }
+
+        private async Task<T> ExecuteWithFallbackAsync<T>(Func<Task<T>> action, Func<Task<T>> fallbackAction, string operationName)
+        {
+            try
+            {
+                if (IsRedisConnected)
+                {
+                    return await action();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Redis connection failed during {Operation}. Falling back to memory cache.", operationName);
+            }
+
+            if (fallbackAction != null)
+            {
+                return await fallbackAction();
+            }
+
+            return default;
+        }
+
+        private void ExecuteWithFallback(Action action, Action fallbackAction, string operationName)
+        {
+            try
+            {
+                if (IsRedisConnected)
+                {
+                    action();
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Redis connection failed during {Operation}. Falling back to memory cache.", operationName);
+            }
+
+            fallbackAction?.Invoke();
+        }
+
+        private T ExecuteWithFallback<T>(Func<T> action, Func<T> fallbackAction, string operationName)
+        {
+            try
+            {
+                if (IsRedisConnected)
+                {
+                    return action();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Redis connection failed during {Operation}. Falling back to memory cache.", operationName);
+            }
+
+            if (fallbackAction != null)
+            {
+                return fallbackAction();
+            }
+
+            return default;
+        }
+
+        private void SetFallback(CacheKey key, object data)
+        {
+            if (_memoryCache != null && key != null && data != null && key.CacheTime > 0)
+            {
+                _memoryCache.Set(key.Key, data, PrepareMemoryEntryOptions(key));
+            }
+        }
+
+        private T GetFallback<T>(CacheKey key)
+        {
+            if (_memoryCache != null && _memoryCache.TryGetValue(key.Key, out T val))
+            {
+                return val;
+            }
+            return default;
+        }
+
+        private void RemoveFallback(string key)
+        {
+            _memoryCache?.Remove(key);
+        }
+
+        private bool AcquireLocalLock(string resource, DateTime lockExpiry)
+        {
+            var now = DateTime.UtcNow;
+            while (true)
+            {
+                if (_fallbackLocks.TryAdd(resource, lockExpiry))
+                {
+                    return true;
+                }
+
+                if (_fallbackLocks.TryGetValue(resource, out var existingExpiry))
+                {
+                    if (existingExpiry < now)
+                    {
+                        _fallbackLocks.TryRemove(KeyValuePair.Create(resource, existingExpiry));
+                        continue;
+                    }
+                }
+
+                return false;
+            }
+        }
+
+        private void ReleaseLocalLock(string resource, DateTime lockExpiry)
+        {
+            _fallbackLocks.TryRemove(KeyValuePair.Create(resource, lockExpiry));
+        }
+
         private async Task<(bool isSet, T item)> TryGetItemAsync<T>(CacheKey key)
         {
-            var json = await _distributedCache.GetStringAsync(key.Key);
+            return await ExecuteWithFallbackAsync(
+                async () =>
+                {
+                    var json = await _distributedCache.GetStringAsync(key.Key);
+                    if (string.IsNullOrEmpty(json))
+                        return (false, default(T));
 
-            if (string.IsNullOrEmpty(json))
-                return (false, default);
-
-            var item = JsonSerializer.Deserialize<T>(json);
-            _perRequestCache.Set(key.Key, item);
-
-            using var _ = await _locker.LockAsync();
-            _keys.Add(key.Key);
-
-            return (true, item);
+                    var item = JsonSerializer.Deserialize<T>(json);
+                    _perRequestCache.Set(key.Key, item);
+                    return (true, item);
+                },
+                async () =>
+                {
+                    if (_memoryCache != null && _memoryCache.TryGetValue(key.Key, out T val))
+                    {
+                        _perRequestCache.Set(key.Key, val);
+                        return (true, val);
+                    }
+                    return (false, default(T));
+                },
+                "TryGetItemAsync"
+            );
         }
 
         private (bool isSet, T item) TryGetItem<T>(CacheKey key)
         {
-            var json = _distributedCache.GetString(key.Key);
+            return ExecuteWithFallback(
+                () =>
+                {
+                    var json = _distributedCache.GetString(key.Key);
+                    if (string.IsNullOrEmpty(json))
+                        return (false, default(T));
 
-            if (string.IsNullOrEmpty(json))
-                return (false, default);
-
-            var item = JsonSerializer.Deserialize<T>(json);
-            _perRequestCache.Set(key.Key, item);
-
-            using var _ = _locker.Lock();
-            _keys.Add(key.Key);
-
-            return (true, item);
+                    var item = JsonSerializer.Deserialize<T>(json);
+                    _perRequestCache.Set(key.Key, item);
+                    return (true, item);
+                },
+                () =>
+                {
+                    if (_memoryCache != null && _memoryCache.TryGetValue(key.Key, out T val))
+                    {
+                        _perRequestCache.Set(key.Key, val);
+                        return (true, val);
+                    }
+                    return (false, default(T));
+                },
+                "TryGetItem"
+            );
         }
 
         private void Set(CacheKey key, object data)
@@ -73,11 +265,19 @@ namespace Base.Caching.Managers
             if ((key?.CacheTime ?? 0) <= 0 || data == null)
                 return;
 
-            _distributedCache.SetString(key.Key, JsonSerializer.Serialize(data), PrepareEntryOptions(key));
-            _perRequestCache.Set(key.Key, data);
+            ExecuteWithFallback(
+                () =>
+                {
+                    _distributedCache.SetString(key.Key, JsonSerializer.Serialize(data), PrepareEntryOptions(key));
+                },
+                () =>
+                {
+                    SetFallback(key, data);
+                },
+                "Set"
+            );
 
-            using var _ = _locker.Lock();
-            _keys.Add(key.Key);
+            _perRequestCache.Set(key.Key, data);
         }
 
         public void Dispose()
@@ -107,18 +307,23 @@ namespace Base.Caching.Managers
 
         public T Get<T>(CacheKey key)
         {
-            var json = _distributedCache.GetString(key.Key);
+            return ExecuteWithFallback(
+                () =>
+                {
+                    var json = _distributedCache.GetString(key.Key);
+                    if (string.IsNullOrEmpty(json))
+                        return default;
 
-            if (string.IsNullOrEmpty(json))
-                return default;
-
-            var item = JsonSerializer.Deserialize<T>(json);
-            _perRequestCache.Set(key.Key, item);
-
-            using var _ = _locker.Lock();
-            _keys.Add(key.Key);
-
-            return item;
+                    var item = JsonSerializer.Deserialize<T>(json);
+                    _perRequestCache.Set(key.Key, item);
+                    return item;
+                },
+                () =>
+                {
+                    return GetFallback<T>(key);
+                },
+                "Get"
+            );
         }
 
         public async Task SetAsync(CacheKey key, object data)
@@ -126,11 +331,19 @@ namespace Base.Caching.Managers
             if ((key?.CacheTime ?? 0) <= 0 || data == null)
                 return;
 
-            await _distributedCache.SetStringAsync(key.Key, JsonSerializer.Serialize(data), PrepareEntryOptions(key));
-            _perRequestCache.Set(key.Key, data);
+            await ExecuteWithFallbackAsync(
+                async () =>
+                {
+                    await _distributedCache.SetStringAsync(key.Key, JsonSerializer.Serialize(data), PrepareEntryOptions(key));
+                },
+                async () =>
+                {
+                    SetFallback(key, data);
+                },
+                "SetAsync"
+            );
 
-            using var _ = await _locker.LockAsync();
-            _keys.Add(key.Key);
+            _perRequestCache.Set(key.Key, data);
         }
 
         public async Task<T> GetAsync<T>(CacheKey key, Func<T> acquire)
@@ -179,11 +392,37 @@ namespace Base.Caching.Managers
         {
             cacheKey = PrepareKey(cacheKey, cacheKeyParameters);
 
-            await _distributedCache.RemoveAsync(cacheKey.Key);
-            _perRequestCache.Remove(cacheKey.Key);
+            await ExecuteWithFallbackAsync(
+                async () =>
+                {
+                    await _distributedCache.RemoveAsync(cacheKey.Key);
+                },
+                async () =>
+                {
+                    RemoveFallback(cacheKey.Key);
+                },
+                "RemoveAsync"
+            );
 
-            using var _ = await _locker.LockAsync();
-            _keys.Remove(cacheKey.Key);
+            _perRequestCache.Remove(cacheKey.Key);
+        }
+
+        private IEnumerable<RedisKey> GetKeys(string pattern)
+        {
+            if (_connectionMultiplexer == null)
+                return Enumerable.Empty<RedisKey>();
+
+            var keys = new List<RedisKey>();
+            var endpoints = _connectionMultiplexer.GetEndPoints();
+            var database = _connectionMultiplexer.GetDatabase().Database;
+
+            foreach (var endpoint in endpoints)
+            {
+                var server = _connectionMultiplexer.GetServer(endpoint);
+                keys.AddRange(server.Keys(database, pattern));
+            }
+
+            return keys.Distinct();
         }
 
         public async Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters)
@@ -191,185 +430,145 @@ namespace Base.Caching.Managers
             prefix = PrepareKeyPrefix(prefix, prefixParameters);
             _perRequestCache.RemoveByPrefix(prefix);
 
-            using var _ = await _locker.LockAsync();
+            await ExecuteWithFallbackAsync(
+                async () =>
+                {
+                    var db = _connectionMultiplexer.GetDatabase();
+                    var instanceName = _distributedCacheConfiguration?.InstanceName ?? string.Empty;
+                    var fullPattern = $"{instanceName}{prefix}*";
+                    var keys = GetKeys(fullPattern).ToArray();
 
-            foreach (var key in _keys.Where(key => key.StartsWith(prefix, StringComparison.InvariantCultureIgnoreCase)).ToList())
-            {
-                await _distributedCache.RemoveAsync(key);
-                _keys.Remove(key);
-            }
+                    if (keys.Length > 0)
+                    {
+                        await db.KeyDeleteAsync(keys);
+                    }
+                },
+                async () =>
+                {
+                    _fallbackPrefixes.TryRemove(prefix, out var tokenSource);
+                    tokenSource?.Cancel();
+                    tokenSource?.Dispose();
+                },
+                "RemoveByPrefixAsync"
+            );
         }
 
         public async Task ClearAsync()
         {
-            foreach (var redisKey in _keys)
-                _perRequestCache.Remove(redisKey);
+            await ExecuteWithFallbackAsync(
+                async () =>
+                {
+                    var db = _connectionMultiplexer.GetDatabase();
+                    var instanceName = _distributedCacheConfiguration?.InstanceName ?? string.Empty;
+                    var fullPattern = $"{instanceName}*";
+                    var keys = GetKeys(fullPattern).ToArray();
 
-            using var _ = await _locker.LockAsync();
-
-            foreach (var key in _keys)
-                await _distributedCache.RemoveAsync(key);
-
-            _keys.Clear();
+                    if (keys.Length > 0)
+                    {
+                        await db.KeyDeleteAsync(keys);
+                    }
+                },
+                async () =>
+                {
+                    _fallbackClearToken.Cancel();
+                    _fallbackClearToken.Dispose();
+                    _fallbackClearToken = new CancellationTokenSource();
+                    foreach (var prefix in _fallbackPrefixes.Keys.ToList())
+                    {
+                        _fallbackPrefixes.TryRemove(prefix, out var tokenSource);
+                        tokenSource?.Dispose();
+                    }
+                },
+                "ClearAsync"
+            );
         }
 
         public bool PerformActionWithLock(string resource, TimeSpan expirationTime, Action action)
         {
-            // Kaynak zaten kilitli
-            if (!string.IsNullOrEmpty(_distributedCache.GetString(resource)))
+            var lockAcquired = false;
+            var now = DateTime.UtcNow;
+            var lockExpiry = now.Add(expirationTime);
+
+            ExecuteWithFallback(
+                () =>
+                {
+                    var db = _connectionMultiplexer.GetDatabase();
+                    lockAcquired = db.StringSet(resource, resource, expirationTime, When.NotExists);
+                },
+                () =>
+                {
+                    lockAcquired = AcquireLocalLock(resource, lockExpiry);
+                },
+                "PerformActionWithLock"
+            );
+
+            if (!lockAcquired)
                 return false;
 
             try
             {
-                // Kilidi koyma (Cache'e ekleme)
-                _distributedCache.SetString(resource, resource, new DistributedCacheEntryOptions
-                {
-                    AbsoluteExpirationRelativeToNow = expirationTime
-                });
-
-                // İşlemi gerçekleştirme
                 action();
-
                 return true;
             }
             finally
             {
-                // Kilidi kaldırma (Cache'ten çıkarma)
-                _distributedCache.Remove(resource);
+                ExecuteWithFallback(
+                    () =>
+                    {
+                        var db = _connectionMultiplexer.GetDatabase();
+                        db.KeyDelete(resource);
+                    },
+                    () =>
+                    {
+                        ReleaseLocalLock(resource, lockExpiry);
+                    },
+                    "ReleaseLock"
+                );
             }
         }
 
         public async Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action)
         {
-            // Kilit olup olmadığını kontrol et
-            var existingLock = await _distributedCache.GetStringAsync(resource);
-            if (!string.IsNullOrEmpty(existingLock))
-            {
-                return false; // Kaynak zaten kilitli
-            }
+            var lockAcquired = false;
+            var now = DateTime.UtcNow;
+            var lockExpiry = now.Add(expirationTime);
 
-            // Kilidi koyma (Cache'e ekleme)
-            await _distributedCache.SetStringAsync(resource, resource, new DistributedCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = expirationTime
-            });
+            await ExecuteWithFallbackAsync(
+                async () =>
+                {
+                    var db = _connectionMultiplexer.GetDatabase();
+                    lockAcquired = await db.StringSetAsync(resource, resource, expirationTime, When.NotExists);
+                },
+                async () =>
+                {
+                    lockAcquired = AcquireLocalLock(resource, lockExpiry);
+                },
+                "PerformActionWithLockAsync"
+            );
+
+            if (!lockAcquired)
+                return false;
 
             try
             {
-                // İşlemi gerçekleştir
                 await action();
                 return true;
             }
             finally
             {
-                // Kilidi kaldır (Cache'ten çıkar)
-                await _distributedCache.RemoveAsync(resource);
+                await ExecuteWithFallbackAsync(
+                    async () =>
+                    {
+                        var db = _connectionMultiplexer.GetDatabase();
+                        await db.KeyDeleteAsync(resource);
+                    },
+                    async () =>
+                    {
+                        ReleaseLocalLock(resource, lockExpiry);
+                    },
+                    "ReleaseLockAsync"
+                );
             }
         }
-
-        //protected class PerRequestCache
-        //{
-        //    private readonly IHttpContextAccessor _httpContextAccessor;
-        //    private readonly ReaderWriterLockSlim _lockSlim;
-
-
-        //    public PerRequestCache(IHttpContextAccessor httpContextAccessor)
-        //    {
-        //        _httpContextAccessor = httpContextAccessor;
-
-        //        _lockSlim = new ReaderWriterLockSlim();
-        //    }
-
-        //    protected virtual IDictionary<object, object> GetItems()
-        //    {
-        //        return _httpContextAccessor.HttpContext?.Items;
-        //    }
-
-        //    public virtual T Get<T>(string key, Func<T> acquire)
-        //    {
-        //        IDictionary<object, object> items;
-
-        //        using (new ReaderWriteLockDisposable(_lockSlim, ReaderWriteLockType.Read))
-        //        {
-        //            items = GetItems();
-        //            if (items == null)
-        //                return acquire();
-
-        //            if (items[key] != null)
-        //                return (T)items[key];
-        //        }
-
-        //        var result = acquire();
-
-        //        using (new ReaderWriteLockDisposable(_lockSlim))
-        //            items[key] = result;
-
-        //        return result;
-        //    }
-
-        //    public virtual void Set(string key, object data)
-        //    {
-        //        if (data == null)
-        //            return;
-
-        //        using (new ReaderWriteLockDisposable(_lockSlim))
-        //        {
-        //            var items = GetItems();
-        //            if (items == null)
-        //                return;
-
-        //            items[key] = data;
-        //        }
-        //    }
-
-        //    public virtual bool IsSet(string key)
-        //    {
-        //        using (new ReaderWriteLockDisposable(_lockSlim, ReaderWriteLockType.Read))
-        //        {
-        //            var items = GetItems();
-        //            return items?[key] != null;
-        //        }
-        //    }
-
-        //    public virtual void Remove(string key)
-        //    {
-        //        using (new ReaderWriteLockDisposable(_lockSlim))
-        //        {
-        //            var items = GetItems();
-        //            items?.Remove(key);
-        //        }
-        //    }
-
-        //    public virtual bool IsRemove(string key)
-        //    {
-        //        using (new ReaderWriteLockDisposable(_lockSlim))
-        //        {
-        //            var items = GetItems();
-        //            return items?[key] == null ? true : false;
-        //        }
-        //    }
-
-        //    public virtual void RemoveByPrefix(string prefix)
-        //    {
-        //        using (new ReaderWriteLockDisposable(_lockSlim, ReaderWriteLockType.UpgradeableRead))
-        //        {
-        //            var items = GetItems();
-        //            if (items == null)
-        //                return;
-        //            var regex = new Regex(prefix,
-        //                RegexOptions.Singleline | RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-        //            var matchesKeys = items.Keys.Select(p => p.ToString())
-        //                .Where(key => regex.IsMatch(key ?? string.Empty)).ToList();
-
-        //            if (!matchesKeys.Any())
-        //                return;
-
-        //            using (new ReaderWriteLockDisposable(_lockSlim))
-        //                foreach (var key in matchesKeys)
-        //                    items.Remove(key);
-        //        }
-        //    }
-        //}
     }
 }
