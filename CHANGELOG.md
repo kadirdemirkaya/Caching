@@ -2,7 +2,9 @@
 
 All notable changes to `Base.Caching` are documented in this file.
 
-## Unreleased
+## 2.0.0 - 2026-11-09
+
+Upgrading from 1.x: see "Upgrading from 1.x" in the README (https://github.com/kadirdemirkaya/Caching#upgrading-from-1x).
 
 ### Changed
 - **Breaking:** target frameworks are now net8.0, net9.0 and net10.0; net6.0 and net7.0 are no longer built.
@@ -27,9 +29,10 @@ All notable changes to `Base.Caching` are documented in this file.
 - Optional sliding expiration: `CacheKey.SlidingExpiration` (`TimeSpan?`, positive), applied by the in-memory and the distributed store and kept by `PrepareKey`.
 - Code-first registration: `AddCaching(Action<CacheOptions>)` with `CacheOptions.Cache` and `CacheOptions.DistributedCache`; without settings it registers the in-memory manager with the built-in times.
 - Opt-in stampede protection: `BaseCacheConfiguration.PreventConcurrentAcquire` (`Caching:Cache:PreventConcurrentAcquire`, or `options.Cache.PreventConcurrentAcquire`), default `false`. When `true`, concurrent `GetAsync` misses for the same key run the acquire function once per process (memory, distributed and hybrid managers); the other callers wait and read the cached value. An exception from the acquire function is not cached and does not block the waiting callers. New constructor `MemoryCacheManager(IMemoryCache, BaseCacheConfiguration?)` and optional parameter `cacheConfiguration` at the end of the `DistributedCacheManager` constructor carry the setting; existing constructor calls compile unchanged.
+- The package now includes XML documentation for the whole public API, shown as IntelliSense in the IDE.
 
 ### Removed
-- Unused `Nito.AsyncEx` dependency.
+- Unused third-party async helper dependency.
 
 ### Fixed
 - Prefix/clear invalidation and in-process locks of `MemoryCacheManager` and of the `DistributedCacheManager` in-memory fallback are now bound to their `IMemoryCache` instance instead of being process-wide, so `ClearAsync`, `RemoveByPrefixAsync` or a held lock in one service provider no longer affects another. Managers that share the same `IMemoryCache` (one container, any scope) still share them.

@@ -18,7 +18,7 @@ In-memory, Redis distributed, and hybrid (L1/L2) caching library for .NET with a
 ## Installation
 
 ```shell
-dotnet add package Base.Caching --version 1.1.0
+dotnet add package Base.Caching --version 2.0.0
 ```
 
 ## Quick Start
@@ -154,6 +154,20 @@ await _cache.RemoveByPrefixAsync("user.");
 - Both methods return `false` when the lock is held, otherwise run the action and return `true`. The lock is released when the action finishes, also when it throws (the exception is rethrown).
 - In Redis the lock is stored under `{InstanceName}lock:{resource}` with a unique token per acquisition, and released only if that token still owns it: when the action outlives `expirationTime` and another caller has taken the lock, the first caller's release leaves it in place. `ClearAsync` and `RemoveByPrefixAsync` do not delete lock keys.
 - A lock taken in Redis is released in Redis and a lock taken in memory (Redis unavailable) is released in memory, even if the connection changes while the action runs.
+
+## Upgrading from 1.x
+
+2.0.0 is a major release. Most applications only need to retarget and recompile; check the items below that apply to you.
+
+- **Target frameworks:** net8.0, net9.0 and net10.0. Applications on .NET 6 or 7 stay on 1.1.0.
+- **Recompile:** `ICacheManager` and `ICacheLocker` gained `CancellationToken` members and overloads, and the `DistributedCacheManager` constructor gained an optional parameter. Calling code compiles unchanged; a class that implements one of the interfaces must add the new members.
+- **Empty `InstanceName`:** `ClearAsync` (and `RemoveByPrefixAsync("")`) no longer deletes every key of the Redis database; it logs a warning instead. Set `DistributedCache:AllowClearWithoutInstanceName` to `true` to keep the 1.x behaviour.
+- **Lock keys:** Redis locks are stored under `{InstanceName}lock:{resource}` with an owner token. During a rolling upgrade, 1.x and 2.0.0 instances do not see each other's locks; switch all instances together where lock exclusion matters.
+- **Configured cache times:** `Caching:Cache:DefaultCacheTime` and `ShortTermCacheTime` are now applied (1.x ignored them). Check the values in your configuration; `0` or missing keeps 120 and 1 minutes.
+- **`AddCaching` errors:** configuration mistakes throw `InvalidOperationException` / `ArgumentException` (a `catch (Exception)` still catches them). A missing `ConnectionString` now fails at registration, and a literal `services.AddCaching(null)` no longer compiles.
+- **Nullable annotations:** `Get<T>(CacheKey)` returns `T?` and several configuration members are `string?`; projects with nullable reference types enabled may see new warnings.
+
+Full list: [CHANGELOG](https://github.com/kadirdemirkaya/Caching/blob/main/CHANGELOG.md).
 
 ## Manager Resolution
 

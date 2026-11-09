@@ -4,13 +4,14 @@
 		<TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageId>Base.Caching</PackageId>
 		<RepositoryUrl>https://github.com/kadirdemirkaya/Caching</RepositoryUrl>
 		<Description>This project is a caching library for .NET applications. It supports both in-memory and distributed caching (like Redis). It helps manage cache easily in high-performance scenarios.</Description>
 		<PackageTags>caching;memorycache;distributed;redis;dotnet;performance</PackageTags>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
-		<PackageReleaseNotes>Initial release with support for memory and Redis caching.</PackageReleaseNotes>
+		<PackageReleaseNotes>2.0.0: targets net8.0, net9.0 and net10.0. Breaking: ClearAsync no longer deletes the whole Redis database when InstanceName is empty (opt in with AllowClearWithoutInstanceName), lock keys are {InstanceName}lock:{resource} and hold an owner token, ICacheManager and ICacheLocker gained CancellationToken members, AddCaching throws specific exceptions and the public API is nullable-annotated. Added: CancellationToken support, TimeSpan and sliding expiration, AddCaching(Action&lt;CacheOptions&gt;) and opt-in stampede protection (PreventConcurrentAcquire). Fixed: configured cache times are applied, invalidation state is isolated per memory cache, the hybrid invalidation subscription is created once, locks are released only by their owner, and per-request and hybrid lookups are consistent. Full list and upgrade notes: https://github.com/kadirdemirkaya/Caching/blob/main/CHANGELOG.md</PackageReleaseNotes>
 		<Authors>Kadir Demirkaya</Authors>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
