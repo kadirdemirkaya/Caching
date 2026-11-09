@@ -4,7 +4,18 @@
     {
         public string Key { get; protected set; }
         public List<string> Prefixes { get; protected set; } = new List<string>();
-        public int CacheTime { get; set; } = CachingDefaults.CacheTime;
+        private int? _cacheTime;
+
+        /// <summary>
+        /// Cache time in minutes. A key created without an explicit expiration follows
+        /// <see cref="CachingDefaults.CacheTime"/> (the configured <c>DefaultCacheTime</c> after <c>AddCaching</c>);
+        /// an explicit value always wins and is kept by <see cref="Create(Func{object, object}, object[])"/>.
+        /// </summary>
+        public int CacheTime
+        {
+            get => _cacheTime ?? CachingDefaults.CacheTime;
+            set => _cacheTime = value;
+        }
 
         public CacheKey(string key, params string[] prefixes)
         {
@@ -27,7 +38,7 @@
 
         public virtual CacheKey Create(Func<object, object> createCacheKeyParameters, params object[] keyObjects)
         {
-            var cacheKey = new CacheKey(Key, Prefixes.ToArray());
+            var cacheKey = new CacheKey(Key, Prefixes.ToArray()) { _cacheTime = _cacheTime };
 
             if (!keyObjects.Any())
                 return cacheKey;

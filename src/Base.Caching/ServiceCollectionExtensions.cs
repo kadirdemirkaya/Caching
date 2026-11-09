@@ -17,6 +17,7 @@ namespace Base.Caching
             if (cacheSection == null || distributedCacheSection == null)
                 throw new Exception("Cache config error!");
 
+            CachingDefaults.Apply(cacheSection);
             services.AddSingleton(cacheSection);
             services.AddSingleton(distributedCacheSection);
             services.AddMemoryCache();
@@ -66,6 +67,7 @@ namespace Base.Caching
             if (cacheSection == null || distributedCacheSection == null)
                 throw new Exception("Cache config error!");
 
+            CachingDefaults.Apply(cacheSection);
             services.AddSingleton(cacheSection);
             services.AddSingleton(distributedCacheSection);
             services.AddMemoryCache();

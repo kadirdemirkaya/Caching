@@ -17,6 +17,8 @@ All notable changes to `Base.Caching` are documented in this file.
 - Prefix/clear invalidation and in-process locks of `MemoryCacheManager` and of the `DistributedCacheManager` in-memory fallback are now bound to their `IMemoryCache` instance instead of being process-wide, so `ClearAsync`, `RemoveByPrefixAsync` or a held lock in one service provider no longer affects another. Managers that share the same `IMemoryCache` (one container, any scope) still share them.
 - `ClearAsync` and `RemoveByPrefixAsync` are safe to call concurrently with writes; they no longer throw `ObjectDisposedException` under contention.
 - `DistributedCacheManager.ClearAsync` also clears the entries it cached for the current HTTP request, so a read in the same request after a clear no longer returns the cleared value. Other `HttpContext.Items` entries are left untouched.
+- `Caching:Cache:DefaultCacheTime` and `ShortTermCacheTime` (or `BaseCacheConfiguration` passed to `AddCaching`) are now applied: values greater than zero become the default and short-term cache times used by `PrepareKeyForDefaultCache`, `PrepareKeyForShortTermCache` and every `CacheKey` created without an explicit expiration (also keys created before `AddCaching`). `0` or missing keeps the built-in 120 and 1 minutes.
+- An explicit expiration on a `CacheKey` (`new CacheKey(key, expireMinute, ...)`, `CacheKey.Create(key, expireMinute, ...)` or setting `CacheTime`) is kept by `PrepareKey`; it previously fell back to the default time.
 
 ## 1.1.0 - 2026-05-24
 
