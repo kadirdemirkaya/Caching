@@ -1,11 +1,19 @@
 ﻿namespace Base.Caching.Lock
 {
+    /// <summary>
+    /// Enters a <see cref="ReaderWriterLockSlim"/> lock when created and exits it when disposed.
+    /// </summary>
     public class ReaderWriteLockDisposable : IDisposable
     {
         private bool _disposed = false;
         private readonly ReaderWriterLockSlim _rwLock;
         private readonly ReaderWriteLockType _readerWriteLockType;
 
+        /// <summary>
+        /// Enters the lock of type <paramref name="readerWriteLockType"/> on <paramref name="rwLock"/>.
+        /// </summary>
+        /// <param name="rwLock">Lock to enter.</param>
+        /// <param name="readerWriteLockType">Lock type; default <see cref="ReaderWriteLockType.Write"/>.</param>
         public ReaderWriteLockDisposable(ReaderWriterLockSlim rwLock, ReaderWriteLockType readerWriteLockType = ReaderWriteLockType.Write)
         {
             _rwLock = rwLock;
@@ -25,12 +33,19 @@
             }
         }
 
+        /// <summary>
+        /// Exits the lock entered by the constructor. Further calls do nothing.
+        /// </summary>
         public void Dispose()
         {
             Dispose(true);
             GC.SuppressFinalize(this);
         }
 
+        /// <summary>
+        /// Exits the lock when <paramref name="disposing"/> is <c>true</c>; runs only once.
+        /// </summary>
+        /// <param name="disposing"><c>true</c> when called from <see cref="Dispose()"/>.</param>
         protected virtual void Dispose(bool disposing)
         {
             if (_disposed)

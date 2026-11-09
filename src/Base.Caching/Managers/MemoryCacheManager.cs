@@ -7,6 +7,9 @@ using System.Collections.Concurrent;
 
 namespace Base.Caching.Managers
 {
+    /// <summary>
+    /// In-memory cache manager and locker for a single application instance.
+    /// </summary>
     public partial class MemoryCacheManager : CacheKeyService, ICacheLocker, ICacheManager
     {
         private bool _disposed;
@@ -15,6 +18,10 @@ namespace Base.Caching.Managers
         private readonly ConcurrentDictionary<string, DateTime> _inMemoryLocks;
         private readonly bool _preventConcurrentAcquire;
 
+        /// <summary>
+        /// Creates the in-memory cache manager with default cache settings.
+        /// </summary>
+        /// <param name="memoryCache">Memory cache that stores the entries.</param>
         public MemoryCacheManager(IMemoryCache memoryCache)
             : this(memoryCache, null)
         {
@@ -85,11 +92,13 @@ namespace Base.Caching.Managers
             return found;
         }
 
+        /// <inheritdoc />
         public Task RemoveAsync(CacheKey cacheKey, params object[] cacheKeyParameters)
         {
             return RemoveAsync(cacheKey, CancellationToken.None, cacheKeyParameters);
         }
 
+        /// <inheritdoc />
         public Task RemoveAsync(CacheKey cacheKey, CancellationToken cancellationToken, params object[] cacheKeyParameters)
         {
             if (cancellationToken.IsCancellationRequested)
@@ -100,11 +109,13 @@ namespace Base.Caching.Managers
             return Task.CompletedTask;
         }
 
+        /// <inheritdoc />
         public Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire, CancellationToken cancellationToken = default)
         {
             return GetAsync(key, _ => acquire(), cancellationToken);
         }
 
+        /// <inheritdoc />
         public async Task<T> GetAsync<T>(CacheKey key, Func<CancellationToken, Task<T>> acquire, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -137,6 +148,7 @@ namespace Base.Caching.Managers
             return result;
         }
 
+        /// <inheritdoc />
         public async Task<T> GetAsync<T>(CacheKey key, Func<T> acquire, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -166,6 +178,7 @@ namespace Base.Caching.Managers
             return result!;
         }
 
+        /// <inheritdoc />
         public T Get<T>(CacheKey key, Func<T> acquire)
         {
             if (key is null || key.CacheTime <= 0)
@@ -182,6 +195,7 @@ namespace Base.Caching.Managers
             return result;
         }
 
+        /// <inheritdoc />
         public T? Get<T>(CacheKey key)
         {
             if (key is null || key.CacheTime <= 0)
@@ -193,6 +207,7 @@ namespace Base.Caching.Managers
             return default;
         }
 
+        /// <inheritdoc />
         public Task SetAsync(CacheKey key, object data, CancellationToken cancellationToken = default)
         {
             if (cancellationToken.IsCancellationRequested)
@@ -203,6 +218,7 @@ namespace Base.Caching.Managers
             return Task.CompletedTask;
         }
 
+        /// <inheritdoc />
         public bool PerformActionWithLock(string key, TimeSpan expirationTime, Action action)
         {
             var now = DateTime.UtcNow;
@@ -238,11 +254,13 @@ namespace Base.Caching.Managers
             }
         }
 
+        /// <inheritdoc />
         public Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters)
         {
             return RemoveByPrefixAsync(prefix, CancellationToken.None, prefixParameters);
         }
 
+        /// <inheritdoc />
         public Task RemoveByPrefixAsync(string prefix, CancellationToken cancellationToken, params object[] prefixParameters)
         {
             if (cancellationToken.IsCancellationRequested)
@@ -255,6 +273,7 @@ namespace Base.Caching.Managers
             return Task.CompletedTask;
         }
 
+        /// <inheritdoc />
         public Task ClearAsync(CancellationToken cancellationToken = default)
         {
             if (cancellationToken.IsCancellationRequested)
@@ -264,11 +283,18 @@ namespace Base.Caching.Managers
 
             return Task.CompletedTask;
         }
+        /// <summary>
+        /// Disposes the memory cache passed to the constructor.
+        /// </summary>
         public void Dispose()
         {
             Dispose(true);
             GC.SuppressFinalize(this);
         }
+        /// <summary>
+        /// Disposes the memory cache when <paramref name="disposing"/> is <c>true</c>; runs only once.
+        /// </summary>
+        /// <param name="disposing"><c>true</c> when called from <see cref="Dispose()"/>.</param>
         protected virtual void Dispose(bool disposing)
         {
             if (_disposed)
@@ -280,11 +306,13 @@ namespace Base.Caching.Managers
             _disposed = true;
         }
 
+        /// <inheritdoc />
         public Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action, CancellationToken cancellationToken = default)
         {
             return PerformActionWithLockAsync(resource, expirationTime, _ => action(), cancellationToken);
         }
 
+        /// <inheritdoc />
         public async Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<CancellationToken, Task> action, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();

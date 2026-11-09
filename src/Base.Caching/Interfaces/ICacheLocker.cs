@@ -1,7 +1,19 @@
 ﻿namespace Base.Caching.Interfaces
 {
+    /// <summary>
+    /// Runs an action while holding a named lock, so that only one caller runs it at a time.
+    /// </summary>
     public interface ICacheLocker
     {
+        /// <summary>
+        /// Runs <paramref name="action"/> while holding the lock <paramref name="resource"/> for at most
+        /// <paramref name="expirationTime"/>.
+        /// </summary>
+        /// <param name="resource">Name of the lock.</param>
+        /// <param name="expirationTime">Time after which the lock expires even if it was not released.</param>
+        /// <param name="action">Action run while the lock is held.</param>
+        /// <returns><c>true</c> when the lock was taken and the action ran; <c>false</c> when the lock is held by
+        /// another caller. The lock is released after the action, also when it throws.</returns>
         bool PerformActionWithLock(string resource, TimeSpan expirationTime, Action action);
 
         /// <summary>

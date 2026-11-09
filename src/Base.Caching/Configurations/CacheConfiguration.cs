@@ -1,5 +1,8 @@
 ﻿namespace Base.Caching.Configurations
 {
+    /// <summary>
+    /// Settings passed to <c>AddCaching(IConfiguration, CacheConfiguration)</c>.
+    /// </summary>
     public class CacheConfiguration
     {
         /// <summary>

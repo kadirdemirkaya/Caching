@@ -6,12 +6,26 @@ using StackExchange.Redis;
 
 namespace Base.Caching.Managers
 {
+    /// <summary>
+    /// Two-level cache manager: a local memory level in front of the distributed level, kept consistent across
+    /// instances with invalidation messages. Locks are taken on the distributed level.
+    /// </summary>
     public class HybridCacheManager : CacheKeyService, ICacheLocker, ICacheManager
     {
         private readonly MemoryCacheManager _memoryCache;
         private readonly DistributedCacheManager _distributedCache;
         private readonly HybridCacheInvalidationListener? _invalidationListener;
 
+        /// <summary>
+        /// Creates the hybrid cache manager.
+        /// </summary>
+        /// <param name="memoryCache">Local memory level.</param>
+        /// <param name="distributedCache">Distributed level.</param>
+        /// <param name="connectionMultiplexer">Redis connection used to publish and receive invalidation messages; without
+        /// it other instances are not notified.</param>
+        /// <param name="configuration">Distributed cache settings; <see cref="BaseDistributedCacheConfiguration.InstanceName"/>
+        /// names the invalidation channel (<c>Base.Caching</c> when not set).</param>
+        /// <param name="logger">Logger for invalidation failures.</param>
         public HybridCacheManager(
             MemoryCacheManager memoryCache,
             DistributedCacheManager distributedCache,
@@ -34,11 +48,13 @@ namespace Base.Caching.Managers
             _invalidationListener?.Publish(action, target);
         }
 
+        /// <inheritdoc />
         public Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire, CancellationToken cancellationToken = default)
         {
             return GetAsync(key, _ => acquire(), cancellationToken);
         }
 
+        /// <inheritdoc />
         public async Task<T> GetAsync<T>(CacheKey key, Func<CancellationToken, Task<T>> acquire, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -73,6 +89,7 @@ namespace Base.Caching.Managers
             return result;
         }
 
+        /// <inheritdoc />
         public async Task<T> GetAsync<T>(CacheKey key, Func<T> acquire, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -95,6 +112,7 @@ namespace Base.Caching.Managers
             }
         }
 
+        /// <inheritdoc />
         public T? Get<T>(CacheKey key)
         {
             if (key.CacheTime <= 0)
@@ -111,6 +129,7 @@ namespace Base.Caching.Managers
             return result;
         }
 
+        /// <inheritdoc />
         public T Get<T>(CacheKey key, Func<T> acquire)
         {
             if (key.CacheTime <= 0)
@@ -129,11 +148,13 @@ namespace Base.Caching.Managers
             return result;
         }
 
+        /// <inheritdoc />
         public Task RemoveAsync(CacheKey cacheKey, params object[] cacheKeyParameters)
         {
             return RemoveAsync(cacheKey, CancellationToken.None, cacheKeyParameters);
         }
 
+        /// <inheritdoc />
         public async Task RemoveAsync(CacheKey cacheKey, CancellationToken cancellationToken, params object[] cacheKeyParameters)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -146,6 +167,7 @@ namespace Base.Caching.Managers
             PublishInvalidation(HybridCacheInvalidationListener.RemoveAction, key.Key);
         }
 
+        /// <inheritdoc />
         public async Task SetAsync(CacheKey key, object data, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -159,11 +181,13 @@ namespace Base.Caching.Managers
             PublishInvalidation(HybridCacheInvalidationListener.RemoveAction, key.Key);
         }
 
+        /// <inheritdoc />
         public Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters)
         {
             return RemoveByPrefixAsync(prefix, CancellationToken.None, prefixParameters);
         }
 
+        /// <inheritdoc />
         public async Task RemoveByPrefixAsync(string prefix, CancellationToken cancellationToken, params object[] prefixParameters)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -176,6 +200,7 @@ namespace Base.Caching.Managers
             PublishInvalidation(HybridCacheInvalidationListener.RemoveByPrefixAction, formattedPrefix);
         }
 
+        /// <inheritdoc />
         public async Task ClearAsync(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -186,16 +211,19 @@ namespace Base.Caching.Managers
             PublishInvalidation(HybridCacheInvalidationListener.ClearAction, string.Empty);
         }
 
+        /// <inheritdoc />
         public bool PerformActionWithLock(string resource, TimeSpan expirationTime, Action action)
         {
             return _distributedCache.PerformActionWithLock(resource, expirationTime, action);
         }
 
+        /// <inheritdoc />
         public Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action, CancellationToken cancellationToken = default)
         {
             return _distributedCache.PerformActionWithLockAsync(resource, expirationTime, action, cancellationToken);
         }
 
+        /// <inheritdoc />
         public Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<CancellationToken, Task> action, CancellationToken cancellationToken = default)
         {
             return _distributedCache.PerformActionWithLockAsync(resource, expirationTime, action, cancellationToken);

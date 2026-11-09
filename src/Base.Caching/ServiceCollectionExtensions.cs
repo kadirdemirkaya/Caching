@@ -7,6 +7,9 @@ using StackExchange.Redis;
 
 namespace Base.Caching
 {
+    /// <summary>
+    /// Registers the cache managers with <c>AddCaching</c>.
+    /// </summary>
     public static class ServiceCollectionExtensions
     {
         private const string CacheSectionName = "Caching:Cache";

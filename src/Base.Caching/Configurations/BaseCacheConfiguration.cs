@@ -1,8 +1,19 @@
 ﻿namespace Base.Caching.Configurations
 {
+    /// <summary>
+    /// Cache settings bound from the <c>Caching:Cache</c> configuration section.
+    /// </summary>
     public class BaseCacheConfiguration
     {
+        /// <summary>
+        /// Default cache time in minutes, used for keys created without an explicit expiration and by
+        /// <c>PrepareKeyForDefaultCache</c>. Zero or less keeps the built-in 120 minutes.
+        /// </summary>
         public int DefaultCacheTime { get; set; }
+        /// <summary>
+        /// Short-term cache time in minutes, used by <c>PrepareKeyForShortTermCache</c>. Zero or less keeps the built-in
+        /// 1 minute.
+        /// </summary>
         public int ShortTermCacheTime { get; set; }
 
         /// <summary>

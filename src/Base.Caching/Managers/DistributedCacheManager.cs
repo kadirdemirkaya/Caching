@@ -13,6 +13,9 @@ using System.Text.Json;
 
 namespace Base.Caching.Managers
 {
+    /// <summary>
+    /// Distributed cache manager and locker backed by Redis; uses an in-memory fallback while Redis is unavailable.
+    /// </summary>
     public class DistributedCacheManager : CacheKeyService, ICacheLocker, ICacheManager
     {
         private readonly IDistributedCache _distributedCache;
@@ -304,15 +307,20 @@ namespace Base.Caching.Managers
             _perRequestCache.Set(key.Key, data);
         }
 
+        /// <summary>
+        /// Does nothing; the injected services are owned by the container.
+        /// </summary>
         public void Dispose()
         {
         }
 
+        /// <inheritdoc />
         public Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire, CancellationToken cancellationToken = default)
         {
             return GetAsync(key, _ => acquire(), cancellationToken);
         }
 
+        /// <inheritdoc />
         public async Task<T> GetAsync<T>(CacheKey key, Func<CancellationToken, Task<T>> acquire, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -357,6 +365,7 @@ namespace Base.Caching.Managers
             return result;
         }
 
+        /// <inheritdoc />
         public T? Get<T>(CacheKey key)
         {
             if (key is null || key.CacheTime <= 0)
@@ -381,6 +390,7 @@ namespace Base.Caching.Managers
             );
         }
 
+        /// <inheritdoc />
         public async Task SetAsync(CacheKey key, object data, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -404,6 +414,7 @@ namespace Base.Caching.Managers
             _perRequestCache.Set(key.Key, data);
         }
 
+        /// <inheritdoc />
         public async Task<T> GetAsync<T>(CacheKey key, Func<T> acquire, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -414,6 +425,7 @@ namespace Base.Caching.Managers
             return await GetOrAcquireAsync(key, _ => Task.FromResult(acquire()), _preventConcurrentAcquire, cancellationToken);
         }
 
+        /// <inheritdoc />
         public T Get<T>(CacheKey key, Func<T> acquire)
         {
             if (key.CacheTime <= 0)
@@ -435,11 +447,13 @@ namespace Base.Caching.Managers
             return result;
         }
 
+        /// <inheritdoc />
         public Task RemoveAsync(CacheKey cacheKey, params object[] cacheKeyParameters)
         {
             return RemoveAsync(cacheKey, CancellationToken.None, cacheKeyParameters);
         }
 
+        /// <inheritdoc />
         public async Task RemoveAsync(CacheKey cacheKey, CancellationToken cancellationToken, params object[] cacheKeyParameters)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -529,11 +543,13 @@ namespace Base.Caching.Managers
                 await database.KeyDeleteAsync(batch.ToArray());
         }
 
+        /// <inheritdoc />
         public Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters)
         {
             return RemoveByPrefixAsync(prefix, CancellationToken.None, prefixParameters);
         }
 
+        /// <inheritdoc />
         public async Task RemoveByPrefixAsync(string prefix, CancellationToken cancellationToken, params object[] prefixParameters)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -556,6 +572,7 @@ namespace Base.Caching.Managers
             );
         }
 
+        /// <inheritdoc />
         public async Task ClearAsync(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -677,6 +694,7 @@ namespace Base.Caching.Managers
             _logger?.LogWarning(ex, "Releasing lock {Resource} in Redis failed; it is removed when its expiration time elapses.", resource);
         }
 
+        /// <inheritdoc />
         public bool PerformActionWithLock(string resource, TimeSpan expirationTime, Action action)
         {
             var lease = AcquireLock(resource, expirationTime, "PerformActionWithLock");
@@ -695,11 +713,13 @@ namespace Base.Caching.Managers
             }
         }
 
+        /// <inheritdoc />
         public Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action, CancellationToken cancellationToken = default)
         {
             return PerformActionWithLockAsync(resource, expirationTime, _ => action(), cancellationToken);
         }
 
+        /// <inheritdoc />
         public async Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<CancellationToken, Task> action, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();

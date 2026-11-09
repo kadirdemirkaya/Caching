@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.Http;
 
 namespace Base.Caching
 {
+    /// <summary>
+    /// Caches values for the duration of the current HTTP request in <c>HttpContext.Items</c>.
+    /// </summary>
     public class PerRequestCache
     {
         private static readonly object _trackedKeysItemKey = new();
@@ -10,6 +13,10 @@ namespace Base.Caching
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ReaderWriterLockSlim _lockSlim;
 
+        /// <summary>
+        /// Creates the per-request cache.
+        /// </summary>
+        /// <param name="httpContextAccessor">Gives access to the current HTTP request.</param>
         public PerRequestCache(IHttpContextAccessor httpContextAccessor)
         {
             _httpContextAccessor = httpContextAccessor;
@@ -17,11 +24,24 @@ namespace Base.Caching
             _lockSlim = new ReaderWriterLockSlim();
         }
 
+        /// <summary>
+        /// Returns the item collection of the current HTTP request.
+        /// </summary>
+        /// <returns>The items, or <c>null</c> when there is no current request.</returns>
         protected virtual IDictionary<object, object?>? GetItems()
         {
             return _httpContextAccessor.HttpContext?.Items;
         }
 
+        /// <summary>
+        /// Returns the value stored for the current request under <paramref name="key"/>, or loads it with
+        /// <paramref name="acquire"/> and stores it. Without a current request <paramref name="acquire"/> is called and
+        /// nothing is stored.
+        /// </summary>
+        /// <typeparam name="T">Type of the value.</typeparam>
+        /// <param name="key">Cache key.</param>
+        /// <param name="acquire">Loads the value when nothing is stored.</param>
+        /// <returns>The stored or loaded value.</returns>
         public virtual T Get<T>(string key, Func<T> acquire)
         {
             IDictionary<object, object?>? items;
@@ -112,6 +132,11 @@ namespace Base.Caching
             keys.Add(key);
         }
 
+        /// <summary>
+        /// Checks whether a value is stored for the current request under <paramref name="key"/>.
+        /// </summary>
+        /// <param name="key">Cache key.</param>
+        /// <returns><c>true</c> when a non-null value is stored; <c>false</c> otherwise or without a current request.</returns>
         public virtual bool IsSet(string key)
         {
             using (new ReaderWriteLockDisposable(_lockSlim, ReaderWriteLockType.Read))
@@ -121,6 +146,10 @@ namespace Base.Caching
             }
         }
 
+        /// <summary>
+        /// Removes the value stored for the current request under <paramref name="key"/>.
+        /// </summary>
+        /// <param name="key">Cache key.</param>
         public virtual void Remove(string key)
         {
             using (new ReaderWriteLockDisposable(_lockSlim))
@@ -130,6 +159,11 @@ namespace Base.Caching
             }
         }
 
+        /// <summary>
+        /// Checks whether no value is stored for the current request under <paramref name="key"/>.
+        /// </summary>
+        /// <param name="key">Cache key.</param>
+        /// <returns><c>true</c> when no non-null value is stored or there is no current request; otherwise <c>false</c>.</returns>
         public virtual bool IsRemove(string key)
         {
             using (new ReaderWriteLockDisposable(_lockSlim))
@@ -139,6 +173,13 @@ namespace Base.Caching
             }
         }
 
+        /// <summary>
+        /// Removes the values stored for the current request whose string key starts with <paramref name="prefix"/>
+        /// (ordinal comparison).
+        /// </summary>
+        /// <param name="prefix">Key prefix.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="prefix"/> is <c>null</c> and there is a current
+        /// request.</exception>
         public virtual void RemoveByPrefix(string prefix)
         {
             using (new ReaderWriteLockDisposable(_lockSlim, ReaderWriteLockType.UpgradeableRead))

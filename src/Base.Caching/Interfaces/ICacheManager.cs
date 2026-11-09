@@ -2,6 +2,9 @@
 
 namespace Base.Caching.Interfaces
 {
+    /// <summary>
+    /// Reads, writes and removes cache entries and prepares cache keys.
+    /// </summary>
     public interface ICacheManager
     {
         /// <summary>
@@ -48,8 +51,21 @@ namespace Base.Caching.Interfaces
         /// <see cref="CacheKey.CacheTime"/> is not positive.</returns>
         T? Get<T>(CacheKey key);
 
+        /// <summary>
+        /// Returns the value cached under <paramref name="key"/>, or loads it with <paramref name="acquire"/> and caches it.
+        /// </summary>
+        /// <typeparam name="T">Type of the cached value.</typeparam>
+        /// <param name="key">Prepared cache key; when its <see cref="CacheKey.CacheTime"/> is not positive,
+        /// <paramref name="acquire"/> is called and nothing is cached.</param>
+        /// <param name="acquire">Loads the value on a cache miss; a <c>null</c> result is not cached.</param>
+        /// <returns>The cached or loaded value.</returns>
         T Get<T>(CacheKey key, Func<T> acquire);
 
+        /// <summary>
+        /// Removes the entry of <paramref name="cacheKey"/>, formatted with <paramref name="cacheKeyParameters"/>.
+        /// </summary>
+        /// <param name="cacheKey">Cache key, optionally a format string for <paramref name="cacheKeyParameters"/>.</param>
+        /// <param name="cacheKeyParameters">Values formatted into <paramref name="cacheKey"/>.</param>
         Task RemoveAsync(CacheKey cacheKey, params object[] cacheKeyParameters);
 
         /// <summary>
@@ -116,10 +132,31 @@ namespace Base.Caching.Interfaces
 
 
 
+        /// <summary>
+        /// Returns a copy of <paramref name="cacheKey"/> whose key and prefixes are formatted with
+        /// <paramref name="cacheKeyParameters"/>; the expiration is kept.
+        /// </summary>
+        /// <param name="cacheKey">Key template.</param>
+        /// <param name="cacheKeyParameters">Values formatted into the key and its prefixes.</param>
+        /// <returns>The prepared key.</returns>
         CacheKey PrepareKey(CacheKey cacheKey, params object[] cacheKeyParameters);
 
+        /// <summary>
+        /// Like <see cref="PrepareKey(CacheKey, object[])"/>, and sets the cache time of the prepared key to
+        /// <see cref="CachingDefaults.CacheTime"/>.
+        /// </summary>
+        /// <param name="cacheKey">Key template.</param>
+        /// <param name="cacheKeyParameters">Values formatted into the key and its prefixes.</param>
+        /// <returns>The prepared key.</returns>
         CacheKey PrepareKeyForDefaultCache(CacheKey cacheKey, params object[] cacheKeyParameters);
 
+        /// <summary>
+        /// Like <see cref="PrepareKey(CacheKey, object[])"/>, and sets the cache time of the prepared key to
+        /// <see cref="CachingDefaults.ShortCacheTime"/>.
+        /// </summary>
+        /// <param name="cacheKey">Key template.</param>
+        /// <param name="cacheKeyParameters">Values formatted into the key and its prefixes.</param>
+        /// <returns>The prepared key.</returns>
         CacheKey PrepareKeyForShortTermCache(CacheKey cacheKey, params object[] cacheKeyParameters);
 
     }

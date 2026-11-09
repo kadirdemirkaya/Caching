@@ -1,8 +1,17 @@
 ﻿namespace Base.Caching.Key
 {
+    /// <summary>
+    /// Cache key: the key name (optionally a format string), its prefixes and its expiration.
+    /// </summary>
     public partial class CacheKey
     {
+        /// <summary>
+        /// Key name; after <c>PrepareKey</c> the formatted name under which the entry is stored.
+        /// </summary>
         public string Key { get; protected set; }
+        /// <summary>
+        /// Prefixes (tags) used by <c>RemoveByPrefixAsync</c> in memory. Empty prefixes are not added.
+        /// </summary>
         public List<string> Prefixes { get; protected set; } = new List<string>();
         private TimeSpan? _cacheDuration;
         private TimeSpan? _slidingExpiration;
@@ -49,12 +58,23 @@
             }
         }
 
+        /// <summary>
+        /// Creates a key that follows <see cref="CachingDefaults.CacheTime"/>.
+        /// </summary>
+        /// <param name="key">Key, optionally a format string for the parameters passed to <c>PrepareKey</c>.</param>
+        /// <param name="prefixes">Prefixes (tags) used by <c>RemoveByPrefixAsync</c> in memory.</param>
         public CacheKey(string key, params string[] prefixes)
         {
             Key = key;
             Prefixes.AddRange(prefixes.Where(prefix => !string.IsNullOrEmpty(prefix)));
         }
 
+        /// <summary>
+        /// Creates a key whose entry expires <paramref name="expireMinute"/> minutes after it is written.
+        /// </summary>
+        /// <param name="key">Key, optionally a format string for the parameters passed to <c>PrepareKey</c>.</param>
+        /// <param name="expireMinute">Cache time in minutes; zero or less disables caching.</param>
+        /// <param name="prefixes">Prefixes (tags) used by <c>RemoveByPrefixAsync</c> in memory.</param>
         public CacheKey(string key, int expireMinute, params string[] prefixes)
         {
             Key = key;
@@ -75,9 +95,22 @@
             Prefixes.AddRange(prefixes.Where(prefix => !string.IsNullOrEmpty(prefix)));
         }
 
+        /// <summary>
+        /// Creates a key that follows <see cref="CachingDefaults.CacheTime"/>.
+        /// </summary>
+        /// <param name="key">Key, optionally a format string for the parameters passed to <c>PrepareKey</c>.</param>
+        /// <param name="prefixes">Prefixes (tags) used by <c>RemoveByPrefixAsync</c> in memory.</param>
+        /// <returns>The new key.</returns>
         public static CacheKey Create(string key, params string[] prefixes)
             => new CacheKey(key, prefixes);
 
+        /// <summary>
+        /// Creates a key whose entry expires <paramref name="expireMinute"/> minutes after it is written.
+        /// </summary>
+        /// <param name="key">Key, optionally a format string for the parameters passed to <c>PrepareKey</c>.</param>
+        /// <param name="expireMinute">Cache time in minutes; zero or less disables caching.</param>
+        /// <param name="prefixes">Prefixes (tags) used by <c>RemoveByPrefixAsync</c> in memory.</param>
+        /// <returns>The new key.</returns>
         public static CacheKey Create(string key, int expireMinute, params string[] prefixes)
             => new CacheKey(key, expireMinute, prefixes);
 
@@ -104,6 +137,14 @@
             return (int)minutes;
         }
 
+        /// <summary>
+        /// Returns a copy of this key with the same expiration whose key name and prefixes are formatted with
+        /// <paramref name="keyObjects"/>, each converted by <paramref name="createCacheKeyParameters"/>.
+        /// </summary>
+        /// <param name="createCacheKeyParameters">Converts each value before it is formatted.</param>
+        /// <param name="keyObjects">Values formatted into the key name and the prefixes; when empty, the copy is
+        /// returned unformatted.</param>
+        /// <returns>The new key.</returns>
         public virtual CacheKey Create(Func<object, object> createCacheKeyParameters, params object[] keyObjects)
         {
             var cacheKey = new CacheKey(Key, Prefixes.ToArray()) { _cacheDuration = _cacheDuration, _slidingExpiration = _slidingExpiration };
