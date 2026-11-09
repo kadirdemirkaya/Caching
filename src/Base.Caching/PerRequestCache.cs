@@ -1,6 +1,5 @@
 ﻿using Base.Caching.Lock;
 using Microsoft.AspNetCore.Http;
-using System.Text.RegularExpressions;
 
 namespace Base.Caching
 {
@@ -64,6 +63,22 @@ namespace Base.Caching
             }
         }
 
+        internal bool TryGet<T>(string key, out T value)
+        {
+            using (new ReaderWriteLockDisposable(_lockSlim, ReaderWriteLockType.Read))
+            {
+                var items = GetItems();
+                if (items != null && items.TryGetValue(key, out var item) && item is T typed)
+                {
+                    value = typed;
+                    return true;
+                }
+            }
+
+            value = default!;
+            return false;
+        }
+
         internal void Clear()
         {
             using (new ReaderWriteLockDisposable(_lockSlim))
@@ -124,11 +139,11 @@ namespace Base.Caching
                 var items = GetItems();
                 if (items == null)
                     return;
-                var regex = new Regex(prefix,
-                    RegexOptions.Singleline | RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-                var matchesKeys = items.Keys.Select(p => p.ToString())
-                    .Where(key => regex.IsMatch(key ?? string.Empty)).ToList();
+                ArgumentNullException.ThrowIfNull(prefix);
+
+                var matchesKeys = items.Keys.OfType<string>()
+                    .Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).ToList();
 
                 if (!matchesKeys.Any())
                     return;

@@ -39,8 +39,7 @@ namespace Base.Caching.Managers
             if (key.CacheTime <= 0)
                 return await acquire();
 
-            var result = _memoryCache.Get<T>(key);
-            if (result != null)
+            if (_memoryCache.TryGet(key, out T result))
                 return result;
 
             result = await _distributedCache.GetAsync<T>(key, acquire);
@@ -58,8 +57,7 @@ namespace Base.Caching.Managers
             if (key.CacheTime <= 0)
                 return acquire();
 
-            var result = _memoryCache.Get<T>(key);
-            if (result != null)
+            if (_memoryCache.TryGet(key, out T result))
                 return result;
 
             result = await _distributedCache.GetAsync<T>(key, acquire);
@@ -77,16 +75,13 @@ namespace Base.Caching.Managers
             if (key.CacheTime <= 0)
                 return default;
 
-            var result = _memoryCache.Get<T>(key);
-            if (result != null)
+            if (_memoryCache.TryGet(key, out T result))
                 return result;
 
-            result = _distributedCache.Get<T>(key);
+            if (!_distributedCache.TryGet(key, out result))
+                return result;
 
-            if (result != null)
-            {
-                _memoryCache.Set(key, result);
-            }
+            _memoryCache.Set(key, result!);
 
             return result;
         }
@@ -96,8 +91,7 @@ namespace Base.Caching.Managers
             if (key.CacheTime <= 0)
                 return acquire();
 
-            var result = _memoryCache.Get<T>(key);
-            if (result != null)
+            if (_memoryCache.TryGet(key, out T result))
                 return result;
 
             result = _distributedCache.Get<T>(key, acquire);

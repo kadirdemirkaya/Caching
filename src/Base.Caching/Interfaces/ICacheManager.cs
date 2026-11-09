@@ -16,6 +16,25 @@ namespace Base.Caching.Interfaces
 
         Task SetAsync(CacheKey key, object data);
 
+        /// <summary>
+        /// Removes the cache entries selected by <paramref name="prefix"/>, formatted with <paramref name="prefixParameters"/>
+        /// like a key. What the prefix is compared with depends on the store:
+        /// <list type="bullet">
+        /// <item><description>In memory (<c>MemoryCacheManager</c>, the in-memory fallback of <c>DistributedCacheManager</c>
+        /// and the local level of <c>HybridCacheManager</c>): entries whose <see cref="CacheKey.Prefixes"/> contain the
+        /// prefix as an exact, case-sensitive string. The key name is not compared.</description></item>
+        /// <item><description>In Redis (<c>DistributedCacheManager</c> and the distributed level of
+        /// <c>HybridCacheManager</c>): keys whose name starts with <c>{InstanceName}{prefix}</c>, compared literally.
+        /// <see cref="CacheKey.Prefixes"/> are not stored in Redis and are not compared.</description></item>
+        /// </list>
+        /// <c>DistributedCacheManager</c> also removes the values it cached for the current HTTP request whose key starts
+        /// with the prefix, on both the Redis and the fallback path.
+        /// A key is removed by every store when its name starts with the prefix and the same prefix is listed in its
+        /// <see cref="CacheKey.Prefixes"/>, for example <c>new CacheKey("user.{0}", "user.")</c> removed with
+        /// <c>RemoveByPrefixAsync("user.")</c>.
+        /// </summary>
+        /// <param name="prefix">Prefix, optionally a format string for <paramref name="prefixParameters"/>.</param>
+        /// <param name="prefixParameters">Values formatted into <paramref name="prefix"/>.</param>
         Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters);
 
         Task ClearAsync();

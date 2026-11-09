@@ -249,6 +249,13 @@ namespace Base.Caching.Managers
             );
         }
 
+        internal bool TryGet<T>(CacheKey key, out T item)
+        {
+            bool isSet;
+            (isSet, item) = TryGetItem<T>(key);
+            return isSet;
+        }
+
         private void Set(CacheKey key, object data)
         {
             if ((key?.CacheTime ?? 0) <= 0 || data == null)
@@ -275,11 +282,11 @@ namespace Base.Caching.Managers
 
         public async Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire)
         {
-            if (_perRequestCache.IsSet(key.Key))
-                return _perRequestCache.Get(key.Key, () => default(T));
-
             if (key.CacheTime <= 0)
                 return await acquire();
+
+            if (_perRequestCache.TryGet(key.Key, out T cached))
+                return cached;
 
             var (isSet, item) = await TryGetItemAsync<T>(key);
 
@@ -296,6 +303,9 @@ namespace Base.Caching.Managers
 
         public T Get<T>(CacheKey key)
         {
+            if ((key?.CacheTime ?? 0) <= 0)
+                return default!;
+
             return ExecuteWithFallback(
                 () =>
                 {
@@ -337,11 +347,11 @@ namespace Base.Caching.Managers
 
         public async Task<T> GetAsync<T>(CacheKey key, Func<T> acquire)
         {
-            if (_perRequestCache.IsSet(key.Key))
-                return _perRequestCache.Get(key.Key, () => default(T));
-
             if (key.CacheTime <= 0)
                 return acquire();
+
+            if (_perRequestCache.TryGet(key.Key, out T cached))
+                return cached;
 
             var (isSet, item) = await TryGetItemAsync<T>(key);
 
@@ -358,11 +368,11 @@ namespace Base.Caching.Managers
 
         public T Get<T>(CacheKey key, Func<T> acquire)
         {
-            if (_perRequestCache.IsSet(key.Key))
-                return _perRequestCache.Get(key.Key, () => default(T));
-
             if (key.CacheTime <= 0)
                 return acquire();
+
+            if (_perRequestCache.TryGet(key.Key, out T cached))
+                return cached;
 
             var (isSet, item) = TryGetItem<T>(key);
 

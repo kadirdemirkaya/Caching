@@ -9,6 +9,7 @@ All notable changes to `Base.Caching` are documented in this file.
 - `Microsoft.Extensions.Caching.StackExchangeRedis` raised to the latest patched release per target (8.0.33, 9.0.22, 10.0.14).
 - Hybrid invalidation channel is always subscribed and published as a literal channel name, so an `InstanceName` containing `*` no longer turns the subscription into a pattern.
 - Package version is defined once in `Directory.Build.props`.
+- `RemoveByPrefixAsync` is documented per store (README and XML docs): in memory it removes entries whose `CacheKey` lists the prefix, in Redis keys whose name starts with `{InstanceName}{prefix}`. Behaviour is unchanged.
 - **Breaking:** `DistributedCacheManager.ClearAsync` (and `RemoveByPrefixAsync` with an empty prefix) no longer deletes every key of the Redis database when `InstanceName` is empty; it skips Redis and logs a warning. Set `DistributedCache:AllowClearWithoutInstanceName` to `true` to keep the previous behaviour.
 - **Breaking:** Redis lock keys of `PerformActionWithLock` / `PerformActionWithLockAsync` are now `{InstanceName}lock:{resource}` (previously the bare `resource`) and hold a unique token instead of the resource name. Applications sharing a Redis database no longer block each other with equal resource names; during a rolling upgrade, old and new instances do not see each other's locks.
 
@@ -30,6 +31,10 @@ All notable changes to `Base.Caching` are documented in this file.
 - A Redis lock is released only by the caller that acquired it: when an action outlived `expirationTime` and another caller took the lock, the first caller's release no longer deletes the second caller's lock.
 - A lock is released on the path it was acquired on: a Redis lock is no longer left in Redis when the connection drops during the action, and an in-memory fallback lock is no longer leaked (while a foreign Redis key was deleted) when Redis comes back during the action.
 - `ClearAsync` and `RemoveByPrefixAsync` no longer delete held lock keys.
+- `DistributedCacheManager.GetAsync` / `Get` with an acquire function: a key whose `CacheTime` is 0 or less always calls the acquire function; a value cached earlier in the same request under that key is no longer returned. `Get<T>(key)` with such a key returns `default`, like `MemoryCacheManager`.
+- `DistributedCacheManager`: a per-request entry stored with another type than the requested one no longer throws `InvalidCastException`; it is treated as a miss and the value is read from the cache or acquired.
+- `PerRequestCache.RemoveByPrefix` (also used by `DistributedCacheManager.RemoveByPrefixAsync`) removes the keys that start with the prefix, compared literally and case-sensitively. The prefix was interpreted as a case-insensitive regular expression that matched anywhere in the key, so characters such as `.` matched unrelated keys and `[` or `(` could throw.
+- `HybridCacheManager` with a non-nullable value type (`int`, `bool`, …): a miss in local memory returned `default` without reading Redis or calling the acquire function. A missing entry now falls through to Redis and the acquire function, and a cached `default` value (such as `0`) is a hit.
 
 ## 1.1.0 - 2026-05-24
 

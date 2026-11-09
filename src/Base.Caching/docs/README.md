@@ -9,7 +9,7 @@ In-memory, Redis distributed, and hybrid (L1/L2) caching library for .NET with a
 - **Hybrid Cache (L1/L2)** — Memory (L1) + Redis (L2) with Pub/Sub invalidation across instances. Best for read-heavy scenarios.
 - **Atomic Distributed Locks** — `PerformActionWithLock` / `PerformActionWithLockAsync` (Redis `SET NX` or `ConcurrentDictionary`)
 - **Fallback** — Automatic in-memory fallback when Redis is unreachable
-- **Prefix Invalidation** — `RemoveByPrefixAsync` (cancellation tokens for memory, `IServer.Keys()` SCAN for Redis)
+- **Prefix Invalidation** — `RemoveByPrefixAsync` (memory: by the key's prefix tags, Redis: by key name — see Prefix invalidation below)
 - **Per-Request Cache** — Automatic HTTP request-scoped caching
 
 ## Installation
@@ -64,6 +64,26 @@ An explicit expiration always wins: `new CacheKey("user.{0}", 5, "users")` (or `
 |-----------|---------|
 | `ICacheManager` | `Get/GetAsync`, `SetAsync`, `RemoveAsync`, `RemoveByPrefixAsync`, `ClearAsync`, `PrepareKey` |
 | `ICacheLocker` | `PerformActionWithLock` / `PerformActionWithLockAsync` |
+
+### Prefix invalidation
+
+`RemoveByPrefixAsync(prefix)` compares the prefix with a different part of the entry depending on the store:
+
+| Store | What is removed |
+|-------|-----------------|
+| Memory (`MemoryCacheManager`, the in-memory fallback of `DistributedCacheManager`, the local level of `HybridCacheManager`) | Entries whose `CacheKey` lists the prefix among its prefixes (the `params string[] prefixes` of the constructor), compared as an exact, case-sensitive string. The key name is not compared. |
+| Redis (`DistributedCacheManager`, the distributed level of `HybridCacheManager`) | Keys whose name starts with `{InstanceName}{prefix}`, compared literally. The prefixes of a `CacheKey` are not stored in Redis. |
+
+`DistributedCacheManager` also removes the values it cached for the current HTTP request whose key starts with the prefix.
+
+The Quick Start key `new CacheKey("user.{0}", "users")` is removed by `RemoveByPrefixAsync("users")` from memory, but **not from Redis**, because the Redis key name `user.1` does not start with `users`. To remove a key from every store with one call, start its name with the prefix and list the same prefix on the key:
+
+```csharp
+var key = new CacheKey("user.{0}", "user.");
+await _cache.SetAsync(_cache.PrepareKey(key, id), user);
+
+await _cache.RemoveByPrefixAsync("user.");
+```
 
 ### Locks
 

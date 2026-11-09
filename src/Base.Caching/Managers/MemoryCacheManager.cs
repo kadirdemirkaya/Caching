@@ -58,6 +58,13 @@ namespace Base.Caching.Managers
             _memoryCache.Set(key.Key, data, PrepareEntryOptions(key));
         }
 
+        internal bool TryGet<T>(CacheKey key, out T value)
+        {
+            var found = _memoryCache.TryGetValue(key.Key, out T? cached);
+            value = cached!;
+            return found;
+        }
+
         public Task RemoveAsync(CacheKey cacheKey, params object[] cacheKeyParameters)
         {
             Remove(cacheKey, cacheKeyParameters);
