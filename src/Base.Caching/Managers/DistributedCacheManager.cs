@@ -434,6 +434,7 @@ namespace Base.Caching.Managers
             var pattern = $"{EscapeKeyPattern(instanceName)}{EscapeKeyPattern(prefix)}*";
             var database = _connectionMultiplexer.GetDatabase();
             var batch = new List<RedisKey>(KeyDeleteBatchSize);
+            var lockKeyPrefix = LockKeyPrefix;
 
             foreach (var endpoint in _connectionMultiplexer.GetEndPoints())
             {
@@ -443,6 +444,9 @@ namespace Base.Caching.Managers
 
                 await foreach (var key in server.KeysAsync(database.Database, pattern, KeyDeleteBatchSize))
                 {
+                    if (IsLockKey(key, lockKeyPrefix))
+                        continue;
+
                     batch.Add(key);
                     if (batch.Count < KeyDeleteBatchSize)
                         continue;
@@ -493,26 +497,110 @@ namespace Base.Caching.Managers
             _perRequestCache.Clear();
         }
 
+        private const string LockKeySegment = "lock:";
+
+        private enum LockPath
+        {
+            None,
+            Redis,
+            Local
+        }
+
+        private readonly record struct LockLease(LockPath Path, string Token, DateTime LocalExpiry);
+
+        private string LockKeyPrefix => $"{_distributedCacheConfiguration?.InstanceName}{LockKeySegment}";
+
+        private RedisKey GetLockKey(string resource) => $"{LockKeyPrefix}{resource}";
+
+        private static bool IsLockKey(RedisKey key, string lockKeyPrefix) => ((string?)key)?.StartsWith(lockKeyPrefix, StringComparison.Ordinal) ?? false;
+
+        private static string NewLockToken() => Guid.NewGuid().ToString("N");
+
+        private LockLease AcquireLock(string resource, TimeSpan expirationTime, string operationName)
+        {
+            var localExpiry = DateTime.UtcNow.Add(expirationTime);
+
+            return ExecuteWithFallback(
+                () =>
+                {
+                    var token = NewLockToken();
+                    var acquired = _connectionMultiplexer.GetDatabase().LockTake(GetLockKey(resource), token, expirationTime);
+                    return new LockLease(acquired ? LockPath.Redis : LockPath.None, token, localExpiry);
+                },
+                () => new LockLease(AcquireLocalLock(resource, localExpiry) ? LockPath.Local : LockPath.None, string.Empty, localExpiry),
+                operationName
+            );
+        }
+
+        private async Task<LockLease> AcquireLockAsync(string resource, TimeSpan expirationTime, string operationName)
+        {
+            var localExpiry = DateTime.UtcNow.Add(expirationTime);
+
+            return await ExecuteWithFallbackAsync(
+                async () =>
+                {
+                    var token = NewLockToken();
+                    var acquired = await _connectionMultiplexer.GetDatabase().LockTakeAsync(GetLockKey(resource), token, expirationTime);
+                    return new LockLease(acquired ? LockPath.Redis : LockPath.None, token, localExpiry);
+                },
+                () => Task.FromResult(new LockLease(AcquireLocalLock(resource, localExpiry) ? LockPath.Local : LockPath.None, string.Empty, localExpiry)),
+                operationName
+            );
+        }
+
+        private void ReleaseLock(string resource, LockLease lease)
+        {
+            if (lease.Path == LockPath.Local)
+            {
+                ReleaseLocalLock(resource, lease.LocalExpiry);
+                return;
+            }
+
+            try
+            {
+                if (!_connectionMultiplexer.GetDatabase().LockRelease(GetLockKey(resource), lease.Token))
+                    LogLockNotOwned(resource);
+            }
+            catch (Exception ex)
+            {
+                LogLockReleaseFailed(ex, resource);
+            }
+        }
+
+        private async Task ReleaseLockAsync(string resource, LockLease lease)
+        {
+            if (lease.Path == LockPath.Local)
+            {
+                ReleaseLocalLock(resource, lease.LocalExpiry);
+                return;
+            }
+
+            try
+            {
+                if (!await _connectionMultiplexer.GetDatabase().LockReleaseAsync(GetLockKey(resource), lease.Token))
+                    LogLockNotOwned(resource);
+            }
+            catch (Exception ex)
+            {
+                LogLockReleaseFailed(ex, resource);
+            }
+        }
+
+        private void LogLockNotOwned(string resource)
+        {
+            _logger?.LogWarning("Lock {Resource} was no longer held when released: it expired before the action finished.", resource);
+        }
+
+        private void LogLockReleaseFailed(Exception ex, string resource)
+        {
+            _logger?.LogWarning(ex, "Releasing lock {Resource} in Redis failed; it is removed when its expiration time elapses.", resource);
+        }
+
         public bool PerformActionWithLock(string resource, TimeSpan expirationTime, Action action)
         {
-            var lockAcquired = false;
-            var now = DateTime.UtcNow;
-            var lockExpiry = now.Add(expirationTime);
+            var lease = AcquireLock(resource, expirationTime, "PerformActionWithLock");
 
-            ExecuteWithFallback(
-                () =>
-                {
-                    var db = _connectionMultiplexer.GetDatabase();
-                    lockAcquired = db.StringSet(resource, resource, expirationTime, When.NotExists);
-                },
-                () =>
-                {
-                    lockAcquired = AcquireLocalLock(resource, lockExpiry);
-                },
-                "PerformActionWithLock"
-            );
-
-            if (!lockAcquired)
+            if (lease.Path == LockPath.None)
                 return false;
 
             try
@@ -522,41 +610,15 @@ namespace Base.Caching.Managers
             }
             finally
             {
-                ExecuteWithFallback(
-                    () =>
-                    {
-                        var db = _connectionMultiplexer.GetDatabase();
-                        db.KeyDelete(resource);
-                    },
-                    () =>
-                    {
-                        ReleaseLocalLock(resource, lockExpiry);
-                    },
-                    "ReleaseLock"
-                );
+                ReleaseLock(resource, lease);
             }
         }
 
         public async Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action)
         {
-            var lockAcquired = false;
-            var now = DateTime.UtcNow;
-            var lockExpiry = now.Add(expirationTime);
+            var lease = await AcquireLockAsync(resource, expirationTime, "PerformActionWithLockAsync");
 
-            await ExecuteWithFallbackAsync(
-                async () =>
-                {
-                    var db = _connectionMultiplexer.GetDatabase();
-                    lockAcquired = await db.StringSetAsync(resource, resource, expirationTime, When.NotExists);
-                },
-                async () =>
-                {
-                    lockAcquired = AcquireLocalLock(resource, lockExpiry);
-                },
-                "PerformActionWithLockAsync"
-            );
-
-            if (!lockAcquired)
+            if (lease.Path == LockPath.None)
                 return false;
 
             try
@@ -566,18 +628,7 @@ namespace Base.Caching.Managers
             }
             finally
             {
-                await ExecuteWithFallbackAsync(
-                    async () =>
-                    {
-                        var db = _connectionMultiplexer.GetDatabase();
-                        await db.KeyDeleteAsync(resource);
-                    },
-                    async () =>
-                    {
-                        ReleaseLocalLock(resource, lockExpiry);
-                    },
-                    "ReleaseLockAsync"
-                );
+                await ReleaseLockAsync(resource, lease);
             }
         }
     }

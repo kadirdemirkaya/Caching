@@ -117,6 +117,10 @@ public class OrderService
 }
 ```
 
+- Both methods return `false` when the lock is held, otherwise run the action and return `true`. The lock is released when the action finishes, also when it throws (the exception is rethrown).
+- In Redis the lock is stored under `{InstanceName}lock:{resource}` with a unique token per acquisition, and released only if that token still owns it: when the action outlives `expirationTime` and another caller has taken the lock, the first caller's release leaves it in place. `ClearAsync` and `RemoveByPrefixAsync` do not delete lock keys.
+- A lock taken in Redis is released in Redis and a lock taken in memory (Redis unavailable) is released in memory, even if the connection changes while the action runs.
+
 ## Installation
 
 ```shell
