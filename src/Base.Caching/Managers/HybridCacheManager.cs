@@ -34,37 +34,46 @@ namespace Base.Caching.Managers
             _invalidationListener?.Publish(action, target);
         }
 
-        public async Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire)
+        public Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire, CancellationToken cancellationToken = default)
         {
+            return GetAsync(key, _ => acquire(), cancellationToken);
+        }
+
+        public async Task<T> GetAsync<T>(CacheKey key, Func<CancellationToken, Task<T>> acquire, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (key.CacheTime <= 0)
-                return await acquire();
+                return await acquire(cancellationToken);
 
             if (_memoryCache.TryGet(key, out T result))
                 return result;
 
-            result = await _distributedCache.GetAsync<T>(key, acquire);
+            result = await _distributedCache.GetAsync<T>(key, acquire, cancellationToken);
 
             if (result != null)
             {
-                await _memoryCache.SetAsync(key, result);
+                await _memoryCache.SetAsync(key, result, cancellationToken);
             }
 
             return result;
         }
 
-        public async Task<T> GetAsync<T>(CacheKey key, Func<T> acquire)
+        public async Task<T> GetAsync<T>(CacheKey key, Func<T> acquire, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (key.CacheTime <= 0)
                 return acquire();
 
             if (_memoryCache.TryGet(key, out T result))
                 return result;
 
-            result = await _distributedCache.GetAsync<T>(key, acquire);
+            result = await _distributedCache.GetAsync<T>(key, acquire, cancellationToken);
 
             if (result != null)
             {
-                await _memoryCache.SetAsync(key, result);
+                await _memoryCache.SetAsync(key, result, cancellationToken);
             }
 
             return result;
@@ -104,41 +113,59 @@ namespace Base.Caching.Managers
             return result;
         }
 
-        public async Task RemoveAsync(CacheKey cacheKey, params object[] cacheKeyParameters)
+        public Task RemoveAsync(CacheKey cacheKey, params object[] cacheKeyParameters)
         {
+            return RemoveAsync(cacheKey, CancellationToken.None, cacheKeyParameters);
+        }
+
+        public async Task RemoveAsync(CacheKey cacheKey, CancellationToken cancellationToken, params object[] cacheKeyParameters)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var key = PrepareKey(cacheKey, cacheKeyParameters);
 
-            await _distributedCache.RemoveAsync(cacheKey, cacheKeyParameters);
-            await _memoryCache.RemoveAsync(cacheKey, cacheKeyParameters);
+            await _distributedCache.RemoveAsync(cacheKey, cancellationToken, cacheKeyParameters);
+            await _memoryCache.RemoveAsync(cacheKey, cancellationToken, cacheKeyParameters);
 
             PublishInvalidation(HybridCacheInvalidationListener.RemoveAction, key.Key);
         }
 
-        public async Task SetAsync(CacheKey key, object data)
+        public async Task SetAsync(CacheKey key, object data, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (key is null || key.CacheTime <= 0 || data == null)
                 return;
 
-            await _distributedCache.SetAsync(key, data);
-            await _memoryCache.SetAsync(key, data);
+            await _distributedCache.SetAsync(key, data, cancellationToken);
+            await _memoryCache.SetAsync(key, data, cancellationToken);
 
             PublishInvalidation(HybridCacheInvalidationListener.RemoveAction, key.Key);
         }
 
-        public async Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters)
+        public Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters)
         {
+            return RemoveByPrefixAsync(prefix, CancellationToken.None, prefixParameters);
+        }
+
+        public async Task RemoveByPrefixAsync(string prefix, CancellationToken cancellationToken, params object[] prefixParameters)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var formattedPrefix = PrepareKeyPrefix(prefix, prefixParameters);
 
-            await _distributedCache.RemoveByPrefixAsync(prefix, prefixParameters);
-            await _memoryCache.RemoveByPrefixAsync(prefix, prefixParameters);
+            await _distributedCache.RemoveByPrefixAsync(prefix, cancellationToken, prefixParameters);
+            await _memoryCache.RemoveByPrefixAsync(prefix, cancellationToken, prefixParameters);
 
             PublishInvalidation(HybridCacheInvalidationListener.RemoveByPrefixAction, formattedPrefix);
         }
 
-        public async Task ClearAsync()
+        public async Task ClearAsync(CancellationToken cancellationToken = default)
         {
-            await _distributedCache.ClearAsync();
-            await _memoryCache.ClearAsync();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await _distributedCache.ClearAsync(cancellationToken);
+            await _memoryCache.ClearAsync(cancellationToken);
 
             PublishInvalidation(HybridCacheInvalidationListener.ClearAction, string.Empty);
         }
@@ -148,9 +175,14 @@ namespace Base.Caching.Managers
             return _distributedCache.PerformActionWithLock(resource, expirationTime, action);
         }
 
-        public async Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action)
+        public Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action, CancellationToken cancellationToken = default)
         {
-            return await _distributedCache.PerformActionWithLockAsync(resource, expirationTime, action);
+            return _distributedCache.PerformActionWithLockAsync(resource, expirationTime, action, cancellationToken);
+        }
+
+        public Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<CancellationToken, Task> action, CancellationToken cancellationToken = default)
+        {
+            return _distributedCache.PerformActionWithLockAsync(resource, expirationTime, action, cancellationToken);
         }
     }
 }

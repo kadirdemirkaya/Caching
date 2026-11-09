@@ -46,7 +46,8 @@ namespace Base.Caching.Managers
         {
             var options = new DistributedCacheEntryOptions
             {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(key.CacheTime)
+                AbsoluteExpirationRelativeToNow = key.CacheDuration,
+                SlidingExpiration = key.SlidingExpiration
             };
 
             return options;
@@ -56,7 +57,8 @@ namespace Base.Caching.Managers
         {
             var options = new MemoryCacheEntryOptions
             {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(key.CacheTime)
+                AbsoluteExpirationRelativeToNow = key.CacheDuration,
+                SlidingExpiration = key.SlidingExpiration
             };
 
             return _fallbackState.AddExpirationTokens(options, key.Prefixes.ToList());
@@ -66,7 +68,10 @@ namespace Base.Caching.Managers
 
         private IConnectionMultiplexer Connection => _connectionMultiplexer ?? throw new InvalidOperationException("No Redis connection is configured.");
 
-        private async Task ExecuteWithFallbackAsync(Func<Task> action, Func<Task> fallbackAction, string operationName)
+        private static bool IsCancellation(Exception exception, CancellationToken cancellationToken)
+            => exception is OperationCanceledException && cancellationToken.IsCancellationRequested;
+
+        private async Task ExecuteWithFallbackAsync(Func<Task> action, Func<Task> fallbackAction, string operationName, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -76,7 +81,7 @@ namespace Base.Caching.Managers
                     return;
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!IsCancellation(ex, cancellationToken))
             {
                 _logger?.LogWarning(ex, "Redis connection failed during {Operation}. Falling back to memory cache.", operationName);
             }
@@ -87,7 +92,7 @@ namespace Base.Caching.Managers
             }
         }
 
-        private async Task<T> ExecuteWithFallbackAsync<T>(Func<Task<T>> action, Func<Task<T>> fallbackAction, string operationName)
+        private async Task<T> ExecuteWithFallbackAsync<T>(Func<Task<T>> action, Func<Task<T>> fallbackAction, string operationName, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -96,7 +101,7 @@ namespace Base.Caching.Managers
                     return await action();
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!IsCancellation(ex, cancellationToken))
             {
                 _logger?.LogWarning(ex, "Redis connection failed during {Operation}. Falling back to memory cache.", operationName);
             }
@@ -201,12 +206,12 @@ namespace Base.Caching.Managers
             _fallbackLocks.TryRemove(KeyValuePair.Create(resource, lockExpiry));
         }
 
-        private async Task<(bool isSet, T item)> TryGetItemAsync<T>(CacheKey key)
+        private async Task<(bool isSet, T item)> TryGetItemAsync<T>(CacheKey key, CancellationToken cancellationToken)
         {
             return await ExecuteWithFallbackAsync(
                 async () =>
                 {
-                    var json = await _distributedCache.GetStringAsync(key.Key);
+                    var json = await _distributedCache.GetStringAsync(key.Key, cancellationToken);
                     if (string.IsNullOrEmpty(json))
                         return Miss<T>();
 
@@ -223,7 +228,8 @@ namespace Base.Caching.Managers
                     }
                     return Miss<T>();
                 },
-                "TryGetItemAsync"
+                "TryGetItemAsync",
+                cancellationToken
             );
         }
 
@@ -284,23 +290,30 @@ namespace Base.Caching.Managers
         {
         }
 
-        public async Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire)
+        public Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire, CancellationToken cancellationToken = default)
         {
+            return GetAsync(key, _ => acquire(), cancellationToken);
+        }
+
+        public async Task<T> GetAsync<T>(CacheKey key, Func<CancellationToken, Task<T>> acquire, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (key.CacheTime <= 0)
-                return await acquire();
+                return await acquire(cancellationToken);
 
             if (_perRequestCache.TryGet(key.Key, out T cached))
                 return cached;
 
-            var (isSet, item) = await TryGetItemAsync<T>(key);
+            var (isSet, item) = await TryGetItemAsync<T>(key, cancellationToken);
 
             if (isSet)
                 return item;
 
-            var result = await acquire();
+            var result = await acquire(cancellationToken);
 
             if (result != null)
-                await SetAsync(key, result);
+                await SetAsync(key, result, cancellationToken);
 
             return result;
         }
@@ -329,35 +342,40 @@ namespace Base.Caching.Managers
             );
         }
 
-        public async Task SetAsync(CacheKey key, object data)
+        public async Task SetAsync(CacheKey key, object data, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (key is null || key.CacheTime <= 0 || data == null)
                 return;
 
             await ExecuteWithFallbackAsync(
                 async () =>
                 {
-                    await _distributedCache.SetStringAsync(key.Key, JsonSerializer.Serialize(data), PrepareEntryOptions(key));
+                    await _distributedCache.SetStringAsync(key.Key, JsonSerializer.Serialize(data), PrepareEntryOptions(key), cancellationToken);
                 },
                 async () =>
                 {
                     SetFallback(key, data);
                 },
-                "SetAsync"
+                "SetAsync",
+                cancellationToken
             );
 
             _perRequestCache.Set(key.Key, data);
         }
 
-        public async Task<T> GetAsync<T>(CacheKey key, Func<T> acquire)
+        public async Task<T> GetAsync<T>(CacheKey key, Func<T> acquire, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (key.CacheTime <= 0)
                 return acquire();
 
             if (_perRequestCache.TryGet(key.Key, out T cached))
                 return cached;
 
-            var (isSet, item) = await TryGetItemAsync<T>(key);
+            var (isSet, item) = await TryGetItemAsync<T>(key, cancellationToken);
 
             if (isSet)
                 return item;
@@ -365,7 +383,7 @@ namespace Base.Caching.Managers
             var result = acquire();
 
             if (result != null)
-                await SetAsync(key, result);
+                await SetAsync(key, result, cancellationToken);
 
             return result;
         }
@@ -391,20 +409,28 @@ namespace Base.Caching.Managers
             return result;
         }
 
-        public async Task RemoveAsync(CacheKey cacheKey, params object[] cacheKeyParameters)
+        public Task RemoveAsync(CacheKey cacheKey, params object[] cacheKeyParameters)
         {
+            return RemoveAsync(cacheKey, CancellationToken.None, cacheKeyParameters);
+        }
+
+        public async Task RemoveAsync(CacheKey cacheKey, CancellationToken cancellationToken, params object[] cacheKeyParameters)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
             cacheKey = PrepareKey(cacheKey, cacheKeyParameters);
 
             await ExecuteWithFallbackAsync(
                 async () =>
                 {
-                    await _distributedCache.RemoveAsync(cacheKey.Key);
+                    await _distributedCache.RemoveAsync(cacheKey.Key, cancellationToken);
                 },
                 async () =>
                 {
                     RemoveFallback(cacheKey.Key);
                 },
-                "RemoveAsync"
+                "RemoveAsync",
+                cancellationToken
             );
 
             _perRequestCache.Remove(cacheKey.Key);
@@ -442,7 +468,7 @@ namespace Base.Caching.Managers
             return false;
         }
 
-        private async Task DeleteKeysByPrefixAsync(string prefix)
+        private async Task DeleteKeysByPrefixAsync(string prefix, CancellationToken cancellationToken)
         {
             var instanceName = _distributedCacheConfiguration?.InstanceName ?? string.Empty;
             var pattern = $"{EscapeKeyPattern(instanceName)}{EscapeKeyPattern(prefix)}*";
@@ -457,7 +483,7 @@ namespace Base.Caching.Managers
                 if (server.IsReplica)
                     continue;
 
-                await foreach (var key in server.KeysAsync(database.Database, pattern, KeyDeleteBatchSize))
+                await foreach (var key in server.KeysAsync(database.Database, pattern, KeyDeleteBatchSize).WithCancellation(cancellationToken))
                 {
                     if (IsLockKey(key, lockKeyPrefix))
                         continue;
@@ -466,17 +492,26 @@ namespace Base.Caching.Managers
                     if (batch.Count < KeyDeleteBatchSize)
                         continue;
 
+                    cancellationToken.ThrowIfCancellationRequested();
                     await database.KeyDeleteAsync(batch.ToArray());
                     batch.Clear();
                 }
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             if (batch.Count > 0)
                 await database.KeyDeleteAsync(batch.ToArray());
         }
 
-        public async Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters)
+        public Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters)
         {
+            return RemoveByPrefixAsync(prefix, CancellationToken.None, prefixParameters);
+        }
+
+        public async Task RemoveByPrefixAsync(string prefix, CancellationToken cancellationToken, params object[] prefixParameters)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
             prefix = PrepareKeyPrefix(prefix, prefixParameters);
             _perRequestCache.RemoveByPrefix(prefix);
 
@@ -484,29 +519,33 @@ namespace Base.Caching.Managers
                 async () =>
                 {
                     if (CanDeleteByPattern(prefix, "RemoveByPrefixAsync"))
-                        await DeleteKeysByPrefixAsync(prefix);
+                        await DeleteKeysByPrefixAsync(prefix, cancellationToken);
                 },
                 async () =>
                 {
                     _fallbackState.RemoveByPrefix(prefix);
                 },
-                "RemoveByPrefixAsync"
+                "RemoveByPrefixAsync",
+                cancellationToken
             );
         }
 
-        public async Task ClearAsync()
+        public async Task ClearAsync(CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             await ExecuteWithFallbackAsync(
                 async () =>
                 {
                     if (CanDeleteByPattern(string.Empty, "ClearAsync"))
-                        await DeleteKeysByPrefixAsync(string.Empty);
+                        await DeleteKeysByPrefixAsync(string.Empty, cancellationToken);
                 },
                 async () =>
                 {
                     _fallbackState.Clear();
                 },
-                "ClearAsync"
+                "ClearAsync",
+                cancellationToken
             );
 
             _perRequestCache.Clear();
@@ -547,7 +586,7 @@ namespace Base.Caching.Managers
             );
         }
 
-        private async Task<LockLease> AcquireLockAsync(string resource, TimeSpan expirationTime, string operationName)
+        private async Task<LockLease> AcquireLockAsync(string resource, TimeSpan expirationTime, string operationName, CancellationToken cancellationToken)
         {
             var localExpiry = DateTime.UtcNow.Add(expirationTime);
 
@@ -559,7 +598,8 @@ namespace Base.Caching.Managers
                     return new LockLease(acquired ? LockPath.Redis : LockPath.None, token, localExpiry);
                 },
                 () => Task.FromResult(new LockLease(AcquireLocalLock(resource, localExpiry) ? LockPath.Local : LockPath.None, string.Empty, localExpiry)),
-                operationName
+                operationName,
+                cancellationToken
             );
         }
 
@@ -629,16 +669,23 @@ namespace Base.Caching.Managers
             }
         }
 
-        public async Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action)
+        public Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action, CancellationToken cancellationToken = default)
         {
-            var lease = await AcquireLockAsync(resource, expirationTime, "PerformActionWithLockAsync");
+            return PerformActionWithLockAsync(resource, expirationTime, _ => action(), cancellationToken);
+        }
+
+        public async Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<CancellationToken, Task> action, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var lease = await AcquireLockAsync(resource, expirationTime, "PerformActionWithLockAsync", cancellationToken);
 
             if (lease.Path == LockPath.None)
                 return false;
 
             try
             {
-                await action();
+                await action(cancellationToken);
                 return true;
             }
             finally

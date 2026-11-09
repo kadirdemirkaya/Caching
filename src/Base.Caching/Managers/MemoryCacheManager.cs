@@ -23,7 +23,8 @@ namespace Base.Caching.Managers
         {
             var options = new MemoryCacheEntryOptions
             {
-                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(key.CacheTime)
+                AbsoluteExpirationRelativeToNow = key.CacheDuration,
+                SlidingExpiration = key.SlidingExpiration
             };
 
             return _state.AddExpirationTokens(options, key.Prefixes.ToList());
@@ -67,29 +68,46 @@ namespace Base.Caching.Managers
 
         public Task RemoveAsync(CacheKey cacheKey, params object[] cacheKeyParameters)
         {
+            return RemoveAsync(cacheKey, CancellationToken.None, cacheKeyParameters);
+        }
+
+        public Task RemoveAsync(CacheKey cacheKey, CancellationToken cancellationToken, params object[] cacheKeyParameters)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled(cancellationToken);
+
             Remove(cacheKey, cacheKeyParameters);
 
             return Task.CompletedTask;
         }
 
-        public async Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire)
+        public Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire, CancellationToken cancellationToken = default)
         {
+            return GetAsync(key, _ => acquire(), cancellationToken);
+        }
+
+        public async Task<T> GetAsync<T>(CacheKey key, Func<CancellationToken, Task<T>> acquire, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (key is null || key.CacheTime <= 0)
-                return await acquire();
+                return await acquire(cancellationToken);
 
             if (TryGet(key, out T result))
                 return result;
 
-            result = await acquire();
+            result = await acquire(cancellationToken);
 
             if (result != null)
-                await SetAsync(key, result);
+                await SetAsync(key, result, cancellationToken);
 
             return result;
         }
 
-        public async Task<T> GetAsync<T>(CacheKey key, Func<T> acquire)
+        public async Task<T> GetAsync<T>(CacheKey key, Func<T> acquire, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (key is null || key.CacheTime <= 0)
                 return acquire();
 
@@ -133,8 +151,11 @@ namespace Base.Caching.Managers
             return default;
         }
 
-        public Task SetAsync(CacheKey key, object data)
+        public Task SetAsync(CacheKey key, object data, CancellationToken cancellationToken = default)
         {
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled(cancellationToken);
+
             Set(key, data);
 
             return Task.CompletedTask;
@@ -177,6 +198,14 @@ namespace Base.Caching.Managers
 
         public Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters)
         {
+            return RemoveByPrefixAsync(prefix, CancellationToken.None, prefixParameters);
+        }
+
+        public Task RemoveByPrefixAsync(string prefix, CancellationToken cancellationToken, params object[] prefixParameters)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled(cancellationToken);
+
             prefix = PrepareKeyPrefix(prefix, prefixParameters);
 
             _state.RemoveByPrefix(prefix);
@@ -184,8 +213,11 @@ namespace Base.Caching.Managers
             return Task.CompletedTask;
         }
 
-        public Task ClearAsync()
+        public Task ClearAsync(CancellationToken cancellationToken = default)
         {
+            if (cancellationToken.IsCancellationRequested)
+                return Task.FromCanceled(cancellationToken);
+
             _state.Clear();
 
             return Task.CompletedTask;
@@ -206,8 +238,15 @@ namespace Base.Caching.Managers
             _disposed = true;
         }
 
-        public async Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action)
+        public Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action, CancellationToken cancellationToken = default)
         {
+            return PerformActionWithLockAsync(resource, expirationTime, _ => action(), cancellationToken);
+        }
+
+        public async Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<CancellationToken, Task> action, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var now = DateTime.UtcNow;
             var lockExpiry = now.Add(expirationTime);
 
@@ -232,7 +271,7 @@ namespace Base.Caching.Managers
 
             try
             {
-                await action();
+                await action(cancellationToken);
                 return true;
             }
             finally

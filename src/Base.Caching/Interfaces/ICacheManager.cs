@@ -4,9 +4,40 @@ namespace Base.Caching.Interfaces
 {
     public interface ICacheManager
     {
-        Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire);
+        /// <summary>
+        /// Returns the value cached under <paramref name="key"/>, or loads it with <paramref name="acquire"/> and caches it.
+        /// </summary>
+        /// <typeparam name="T">Type of the cached value.</typeparam>
+        /// <param name="key">Prepared cache key.</param>
+        /// <param name="acquire">Loads the value on a cache miss.</param>
+        /// <param name="cancellationToken">Cancels the cache operations (passed to the distributed store).</param>
+        /// <returns>The cached or loaded value.</returns>
+        /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+        Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire, CancellationToken cancellationToken = default);
 
-        Task<T> GetAsync<T>(CacheKey key, Func<T> acquire);
+        /// <summary>
+        /// Returns the value cached under <paramref name="key"/>, or loads it with <paramref name="acquire"/> and caches it;
+        /// <paramref name="acquire"/> receives <paramref name="cancellationToken"/>.
+        /// </summary>
+        /// <typeparam name="T">Type of the cached value.</typeparam>
+        /// <param name="key">Prepared cache key.</param>
+        /// <param name="acquire">Loads the value on a cache miss; receives <paramref name="cancellationToken"/>.</param>
+        /// <param name="cancellationToken">Cancels the cache operations (passed to the distributed store) and is passed to
+        /// <paramref name="acquire"/>.</param>
+        /// <returns>The cached or loaded value.</returns>
+        /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+        Task<T> GetAsync<T>(CacheKey key, Func<CancellationToken, Task<T>> acquire, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Returns the value cached under <paramref name="key"/>, or loads it with <paramref name="acquire"/> and caches it.
+        /// </summary>
+        /// <typeparam name="T">Type of the cached value.</typeparam>
+        /// <param name="key">Prepared cache key.</param>
+        /// <param name="acquire">Loads the value on a cache miss.</param>
+        /// <param name="cancellationToken">Cancels the cache operations (passed to the distributed store).</param>
+        /// <returns>The cached or loaded value.</returns>
+        /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+        Task<T> GetAsync<T>(CacheKey key, Func<T> acquire, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Returns the value cached under <paramref name="key"/> without loading it.
@@ -21,7 +52,25 @@ namespace Base.Caching.Interfaces
 
         Task RemoveAsync(CacheKey cacheKey, params object[] cacheKeyParameters);
 
-        Task SetAsync(CacheKey key, object data);
+        /// <summary>
+        /// Removes the entry of <paramref name="cacheKey"/>, formatted with <paramref name="cacheKeyParameters"/>.
+        /// </summary>
+        /// <param name="cacheKey">Cache key, optionally a format string for <paramref name="cacheKeyParameters"/>.</param>
+        /// <param name="cancellationToken">Cancels the operation (passed to the distributed store).</param>
+        /// <param name="cacheKeyParameters">Values formatted into <paramref name="cacheKey"/>.</param>
+        /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+        Task RemoveAsync(CacheKey cacheKey, CancellationToken cancellationToken, params object[] cacheKeyParameters);
+
+        /// <summary>
+        /// Caches <paramref name="data"/> under <paramref name="key"/>. Nothing is stored when <paramref name="data"/> is
+        /// <c>null</c> or the key's cache time is not positive.
+        /// </summary>
+        /// <param name="key">Prepared cache key; its <see cref="CacheKey.CacheDuration"/> and
+        /// <see cref="CacheKey.SlidingExpiration"/> set the expiration.</param>
+        /// <param name="data">Value to cache.</param>
+        /// <param name="cancellationToken">Cancels the operation (passed to the distributed store).</param>
+        /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+        Task SetAsync(CacheKey key, object data, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Removes the cache entries selected by <paramref name="prefix"/>, formatted with <paramref name="prefixParameters"/>
@@ -44,7 +93,25 @@ namespace Base.Caching.Interfaces
         /// <param name="prefixParameters">Values formatted into <paramref name="prefix"/>.</param>
         Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters);
 
-        Task ClearAsync();
+        /// <summary>
+        /// Removes the cache entries selected by <paramref name="prefix"/>, formatted with
+        /// <paramref name="prefixParameters"/>; same semantics as
+        /// <see cref="RemoveByPrefixAsync(string, object[])"/>. In Redis the token is checked between delete batches, so a
+        /// cancelled call may have removed part of the keys.
+        /// </summary>
+        /// <param name="prefix">Prefix, optionally a format string for <paramref name="prefixParameters"/>.</param>
+        /// <param name="cancellationToken">Cancels the operation.</param>
+        /// <param name="prefixParameters">Values formatted into <paramref name="prefix"/>.</param>
+        /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+        Task RemoveByPrefixAsync(string prefix, CancellationToken cancellationToken, params object[] prefixParameters);
+
+        /// <summary>
+        /// Removes every entry of the cache. In Redis the token is checked between delete batches, so a cancelled call may
+        /// have removed part of the keys.
+        /// </summary>
+        /// <param name="cancellationToken">Cancels the operation.</param>
+        /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+        Task ClearAsync(CancellationToken cancellationToken = default);
 
 
 

@@ -24,6 +24,9 @@ The active manager is selected automatically based on your configuration.
 - Automatic fallback to memory when Redis is down
 - Prefix-based cache invalidation (memory: by the key's prefix tags, Redis: by key name — see Prefix Invalidation)
 - Per-request cache within HTTP scope
+- Expiration in minutes or as a `TimeSpan`, with optional sliding expiration
+- Optional `CancellationToken` on every asynchronous method
+- Registration from configuration or in code (`AddCaching(options => ...)`)
 
 ## Available Services
 
@@ -40,15 +43,13 @@ The active manager is selected automatically based on your configuration.
 // Register (from appsettings.json — see Configuration section below)
 builder.Services.AddCaching(configuration);
 
-// Or programmatically with code
-builder.Services.AddCaching(null, new CacheConfiguration
+// Or in code
+builder.Services.AddCaching(options =>
 {
-    baseCacheConfiguration = new BaseCacheConfiguration { DefaultCacheTime = 60 },
-    baseDistributedCacheConfiguration = new BaseDistributedCacheConfiguration
-    {
-        Enabled = true,
-        ConnectionString = "localhost:6379"
-    }
+    options.Cache.DefaultCacheTime = 60;
+    options.DistributedCache.Enabled = true;
+    options.DistributedCache.ConnectionString = "localhost:6379";
+    options.DistributedCache.InstanceName = "MyApp:";
 });
 
 // Use
@@ -58,14 +59,16 @@ public class MyService
 
     public MyService(ICacheManager cache) => _cache = cache;
 
-    public async Task<User> GetUserAsync(int id)
+    public async Task<User> GetUserAsync(int id, CancellationToken cancellationToken)
     {
         var key = new CacheKey("user.{0}", "users");
         return await _cache.GetAsync(_cache.PrepareKey(key, id),
-            async () => await FetchFromDb(id));
+            async ct => await FetchFromDb(id, ct), cancellationToken);
     }
 }
 ```
+
+`AddCaching(null, new CacheConfiguration { ... })` keeps working; the `options` overload is the shorter form of the same settings.
 
 ## Configuration
 
@@ -94,6 +97,41 @@ public class MyService
 | `DistributedCache:AllowClearWithoutInstanceName` | `false` (default): with an empty `InstanceName`, `ClearAsync` (and `RemoveByPrefixAsync` with an empty prefix) deletes nothing in Redis and logs a warning, so other applications' keys in the same database are kept. `true`: deletes every key of the database. |
 
 An explicit expiration always wins: `new CacheKey("user.{0}", 5, "users")` (or `CacheKey.Create(key, 5)`) is cached for 5 minutes, also after `PrepareKey`. The configured times are applied process-wide by `AddCaching` (through `CachingDefaults`).
+
+The `DistributedCache` section is optional: without it the distributed cache is disabled and `MemoryCacheManager` is used. A missing `Cache` section throws an `InvalidOperationException` naming the section, and so does `Enabled: true` without a `ConnectionString` (the `CacheConfiguration` and `options` overloads throw an `ArgumentException` for the same mistakes).
+
+With the distributed cache enabled, the Redis connection is opened when the first distributed or hybrid manager is created; that first call waits until the connection succeeds or its connect timeout elapses. If Redis is unreachable, the managers fall back to memory instead of throwing.
+
+## Expiration
+
+```csharp
+var minutes = new CacheKey("user.{0}", 5, "users");                        // 5 minutes
+var seconds = new CacheKey("quote.{0}", TimeSpan.FromSeconds(30));          // 30 seconds
+var sliding = CacheKey.Create("session.{0}", TimeSpan.FromHours(8));
+sliding.SlidingExpiration = TimeSpan.FromMinutes(20);                       // removed after 20 idle minutes, at the latest after 8 hours
+```
+
+- `CacheDuration` (`TimeSpan`) is the absolute expiration; `CacheTime` is the same value in minutes. A duration that is not a whole number of minutes reads as the next whole minute in `CacheTime` (30 seconds reads as 1). Zero or less disables caching for the key.
+- `SlidingExpiration` is optional (`null` by default) and must be positive. It applies to memory and Redis and is kept by `PrepareKey`.
+
+## Cancellation
+
+Every asynchronous method of `ICacheManager` and `ICacheLocker` takes an optional `CancellationToken`:
+
+```csharp
+var userKey = new CacheKey("user.{0}", "user.");
+
+await _cache.GetAsync(_cache.PrepareKey(userKey, id), async ct => await FetchFromDb(id, ct), cancellationToken);
+await _cache.SetAsync(_cache.PrepareKey(userKey, id), user, cancellationToken);
+await _cache.RemoveAsync(userKey, cancellationToken, id);
+await _cache.RemoveByPrefixAsync("user.", cancellationToken);
+await _cache.ClearAsync(cancellationToken);
+await _locker.PerformActionWithLockAsync("order:1", TimeSpan.FromSeconds(30), async ct => await SaveAsync(ct), cancellationToken);
+```
+
+- A cancelled token throws `OperationCanceledException`; it is never treated as a Redis failure, so no in-memory fallback runs.
+- The token is passed to the distributed cache and to the acquire function or lock action that takes a `CancellationToken`. `ClearAsync` and `RemoveByPrefixAsync` check it between delete batches, so a cancelled call may have removed part of the keys.
+- A lock is always released after its action, also when the token is cancelled during the action.
 
 ## Prefix Invalidation
 
