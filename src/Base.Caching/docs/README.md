@@ -13,6 +13,7 @@ In-memory, Redis distributed, and hybrid (L1/L2) caching library for .NET with a
 - **Per-Request Cache** — Automatic HTTP request-scoped caching
 - **Expiration** — minutes or `TimeSpan`, optional sliding expiration
 - **Cancellation** — optional `CancellationToken` on every asynchronous method
+- **Stampede Protection** — opt-in: concurrent misses for the same key run the acquire function once
 
 ## Installation
 
@@ -65,6 +66,7 @@ var user = await _cache.GetAsync(
 |-----|---------|
 | `Cache:DefaultCacheTime` | Minutes an entry lives when its `CacheKey` has no explicit expiration, and the time used by `PrepareKeyForDefaultCache`. `0` or missing keeps the built-in 120. |
 | `Cache:ShortTermCacheTime` | Minutes used by `PrepareKeyForShortTermCache`. `0` or missing keeps the built-in 1. |
+| `Cache:PreventConcurrentAcquire` | `false` (default): every `GetAsync` that misses runs its acquire function. `true`: concurrent misses for the same key run it once (see Stampede protection). |
 | `DistributedCache:InstanceName` | Prefix of every Redis key written by the package. `ClearAsync` deletes only keys with this prefix (scanned on primary servers, deleted in batches of 1000). Glob characters (`*`, `?`, `[`, `]`, `\`) in the instance name or in a `RemoveByPrefixAsync` prefix are matched literally. |
 | `DistributedCache:AllowClearWithoutInstanceName` | `false` (default): with an empty `InstanceName`, `ClearAsync` (and `RemoveByPrefixAsync` with an empty prefix) deletes nothing in Redis and logs a warning, so other applications' keys in the same database are kept. `true`: deletes every key of the database. |
 
@@ -111,6 +113,21 @@ await _locker.PerformActionWithLockAsync("order:1", TimeSpan.FromSeconds(30), as
 - A cancelled token throws `OperationCanceledException`; it is never treated as a Redis failure, so no in-memory fallback runs.
 - The token is passed to the distributed cache and to the acquire function or lock action that takes a `CancellationToken`. `ClearAsync` and `RemoveByPrefixAsync` check it between delete batches, so a cancelled call may have removed part of the keys.
 - A lock is always released after its action, also when the token is cancelled during the action.
+
+### Stampede protection
+
+When many requests miss the same key at once, each of them runs the acquire function (for example the same database query). Turn on `PreventConcurrentAcquire` to run it once per process:
+
+```csharp
+services.AddCaching(options => options.Cache.PreventConcurrentAcquire = true);
+// or in appsettings.json: "Caching": { "Cache": { "PreventConcurrentAcquire": true } }
+```
+
+- The first caller acquires and caches the value; concurrent callers for the same key wait and read it from the cache. Different keys do not wait for each other.
+- Applies to every `GetAsync` overload of the memory, distributed and hybrid managers. The synchronous `Get` is not affected.
+- If the acquire function throws, nothing is cached and the exception goes to that caller only; the next waiting caller runs its own acquire function.
+- A waiting caller can be cancelled with its `CancellationToken`. The coordination is per process: several application instances can still each acquire once.
+- Off by default, so existing behaviour is unchanged.
 
 ### Prefix invalidation
 

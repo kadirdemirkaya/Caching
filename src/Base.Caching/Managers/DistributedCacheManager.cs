@@ -1,6 +1,7 @@
 using Base.Caching.Configurations;
 using Base.Caching.Interfaces;
 using Base.Caching.Key;
+using Base.Caching.Lock;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
@@ -23,14 +24,28 @@ namespace Base.Caching.Managers
 
         private readonly CacheInvalidationState _fallbackState;
         private readonly ConcurrentDictionary<string, DateTime> _fallbackLocks;
+        private readonly bool _preventConcurrentAcquire;
 
+        /// <summary>
+        /// Creates the distributed cache manager.
+        /// </summary>
+        /// <param name="distributedCache">Distributed store.</param>
+        /// <param name="httpContextAccessor">Gives access to the per-request cache.</param>
+        /// <param name="connectionMultiplexer">Redis connection used for locks, prefix removal and clearing; without it the
+        /// manager uses the in-memory fallback.</param>
+        /// <param name="distributedCacheConfiguration">Distributed cache settings.</param>
+        /// <param name="memoryCache">Memory cache of the in-memory fallback.</param>
+        /// <param name="logger">Logger for connection failures.</param>
+        /// <param name="cacheConfiguration">Cache settings; <see cref="BaseCacheConfiguration.PreventConcurrentAcquire"/> is
+        /// read once here. <c>null</c> keeps every setting at its default.</param>
         public DistributedCacheManager(
             IDistributedCache distributedCache, 
             IHttpContextAccessor httpContextAccessor,
             IConnectionMultiplexer? connectionMultiplexer = null,
             BaseDistributedCacheConfiguration? distributedCacheConfiguration = null,
             IMemoryCache? memoryCache = null,
-            ILogger<DistributedCacheManager>? logger = null)
+            ILogger<DistributedCacheManager>? logger = null,
+            BaseCacheConfiguration? cacheConfiguration = null)
         {
             _distributedCache = distributedCache;
             _perRequestCache = new PerRequestCache(httpContextAccessor);
@@ -40,7 +55,10 @@ namespace Base.Caching.Managers
             _logger = logger;
             _fallbackState = CacheInvalidationState.ForDistributedFallback(memoryCache);
             _fallbackLocks = _fallbackState.Locks;
+            _preventConcurrentAcquire = cacheConfiguration?.PreventConcurrentAcquire ?? false;
         }
+
+        internal KeyedAsyncLock AcquireLocks => _fallbackState.AcquireLocks;
 
         private DistributedCacheEntryOptions PrepareEntryOptions(CacheKey key)
         {
@@ -302,6 +320,11 @@ namespace Base.Caching.Managers
             if (key.CacheTime <= 0)
                 return await acquire(cancellationToken);
 
+            return await GetOrAcquireAsync(key, acquire, _preventConcurrentAcquire, cancellationToken);
+        }
+
+        internal async Task<T> GetOrAcquireAsync<T>(CacheKey key, Func<CancellationToken, Task<T>> acquire, bool preventConcurrentAcquire, CancellationToken cancellationToken)
+        {
             if (_perRequestCache.TryGet(key.Key, out T cached))
                 return cached;
 
@@ -310,6 +333,22 @@ namespace Base.Caching.Managers
             if (isSet)
                 return item;
 
+            if (!preventConcurrentAcquire)
+                return await AcquireAndSetAsync(key, acquire, cancellationToken);
+
+            using (await _fallbackState.AcquireLocks.LockAsync(key.Key, cancellationToken))
+            {
+                (isSet, item) = await TryGetItemAsync<T>(key, cancellationToken);
+
+                if (isSet)
+                    return item;
+
+                return await AcquireAndSetAsync(key, acquire, cancellationToken);
+            }
+        }
+
+        private async Task<T> AcquireAndSetAsync<T>(CacheKey key, Func<CancellationToken, Task<T>> acquire, CancellationToken cancellationToken)
+        {
             var result = await acquire(cancellationToken);
 
             if (result != null)
@@ -372,20 +411,7 @@ namespace Base.Caching.Managers
             if (key.CacheTime <= 0)
                 return acquire();
 
-            if (_perRequestCache.TryGet(key.Key, out T cached))
-                return cached;
-
-            var (isSet, item) = await TryGetItemAsync<T>(key, cancellationToken);
-
-            if (isSet)
-                return item;
-
-            var result = acquire();
-
-            if (result != null)
-                await SetAsync(key, result, cancellationToken);
-
-            return result;
+            return await GetOrAcquireAsync(key, _ => Task.FromResult(acquire()), _preventConcurrentAcquire, cancellationToken);
         }
 
         public T Get<T>(CacheKey key, Func<T> acquire)

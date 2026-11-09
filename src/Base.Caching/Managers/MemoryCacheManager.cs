@@ -1,5 +1,7 @@
+using Base.Caching.Configurations;
 using Base.Caching.Interfaces;
 using Base.Caching.Key;
+using Base.Caching.Lock;
 using Microsoft.Extensions.Caching.Memory;
 using System.Collections.Concurrent;
 
@@ -11,13 +13,30 @@ namespace Base.Caching.Managers
         private readonly IMemoryCache _memoryCache;
         private readonly CacheInvalidationState _state;
         private readonly ConcurrentDictionary<string, DateTime> _inMemoryLocks;
+        private readonly bool _preventConcurrentAcquire;
 
         public MemoryCacheManager(IMemoryCache memoryCache)
+            : this(memoryCache, null)
+        {
+        }
+
+        /// <summary>
+        /// Creates the in-memory cache manager with the cache settings registered by <c>AddCaching</c>.
+        /// </summary>
+        /// <param name="memoryCache">Memory cache that stores the entries.</param>
+        /// <param name="cacheConfiguration">Cache settings; <see cref="BaseCacheConfiguration.PreventConcurrentAcquire"/> is
+        /// read once here. <c>null</c> keeps every setting at its default.</param>
+        public MemoryCacheManager(IMemoryCache memoryCache, BaseCacheConfiguration? cacheConfiguration)
         {
             _memoryCache = memoryCache;
             _state = CacheInvalidationState.ForMemoryManager(memoryCache);
             _inMemoryLocks = _state.Locks;
+            _preventConcurrentAcquire = cacheConfiguration?.PreventConcurrentAcquire ?? false;
         }
+
+        internal bool PreventConcurrentAcquire => _preventConcurrentAcquire;
+
+        internal KeyedAsyncLock AcquireLocks => _state.AcquireLocks;
 
         private MemoryCacheEntryOptions PrepareEntryOptions(CacheKey key)
         {
@@ -96,7 +115,21 @@ namespace Base.Caching.Managers
             if (TryGet(key, out T result))
                 return result;
 
-            result = await acquire(cancellationToken);
+            if (!_preventConcurrentAcquire)
+                return await AcquireAndSetAsync(key, acquire, cancellationToken);
+
+            using (await _state.AcquireLocks.LockAsync(key.Key, cancellationToken))
+            {
+                if (TryGet(key, out result))
+                    return result;
+
+                return await AcquireAndSetAsync(key, acquire, cancellationToken);
+            }
+        }
+
+        private async Task<T> AcquireAndSetAsync<T>(CacheKey key, Func<CancellationToken, Task<T>> acquire, CancellationToken cancellationToken)
+        {
+            var result = await acquire(cancellationToken);
 
             if (result != null)
                 await SetAsync(key, result, cancellationToken);
@@ -111,6 +144,15 @@ namespace Base.Caching.Managers
             if (key is null || key.CacheTime <= 0)
                 return acquire();
 
+            if (!_preventConcurrentAcquire || TryGet(key, out T _))
+                return await GetOrCreateAsync(key, acquire);
+
+            using (await _state.AcquireLocks.LockAsync(key.Key, cancellationToken))
+                return await GetOrCreateAsync(key, acquire);
+        }
+
+        private async Task<T> GetOrCreateAsync<T>(CacheKey key, Func<T> acquire)
+        {
             var result = _memoryCache.GetOrCreate(key.Key, entry =>
             {
                 entry.SetOptions(PrepareEntryOptions(key));

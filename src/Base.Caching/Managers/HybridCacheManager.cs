@@ -49,7 +49,21 @@ namespace Base.Caching.Managers
             if (_memoryCache.TryGet(key, out T result))
                 return result;
 
-            result = await _distributedCache.GetAsync<T>(key, acquire, cancellationToken);
+            if (!_memoryCache.PreventConcurrentAcquire)
+                return await LoadAsync(key, () => _distributedCache.GetAsync<T>(key, acquire, cancellationToken), cancellationToken);
+
+            using (await _memoryCache.AcquireLocks.LockAsync(key.Key, cancellationToken))
+            {
+                if (_memoryCache.TryGet(key, out result))
+                    return result;
+
+                return await LoadAsync(key, () => _distributedCache.GetOrAcquireAsync(key, acquire, false, cancellationToken), cancellationToken);
+            }
+        }
+
+        private async Task<T> LoadAsync<T>(CacheKey key, Func<Task<T>> load, CancellationToken cancellationToken)
+        {
+            var result = await load();
 
             if (result != null)
             {
@@ -69,14 +83,16 @@ namespace Base.Caching.Managers
             if (_memoryCache.TryGet(key, out T result))
                 return result;
 
-            result = await _distributedCache.GetAsync<T>(key, acquire, cancellationToken);
+            if (!_memoryCache.PreventConcurrentAcquire)
+                return await LoadAsync(key, () => _distributedCache.GetAsync<T>(key, acquire, cancellationToken), cancellationToken);
 
-            if (result != null)
+            using (await _memoryCache.AcquireLocks.LockAsync(key.Key, cancellationToken))
             {
-                await _memoryCache.SetAsync(key, result, cancellationToken);
-            }
+                if (_memoryCache.TryGet(key, out result))
+                    return result;
 
-            return result;
+                return await LoadAsync(key, () => _distributedCache.GetOrAcquireAsync(key, _ => Task.FromResult(acquire()), false, cancellationToken), cancellationToken);
+            }
         }
 
         public T? Get<T>(CacheKey key)

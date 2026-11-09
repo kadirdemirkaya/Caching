@@ -1,3 +1,4 @@
+using Base.Caching.Lock;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Primitives;
 using System.Collections.Concurrent;
@@ -16,6 +17,8 @@ namespace Base.Caching.Managers
         private CancellationTokenSource _clearTokenSource = new();
 
         public ConcurrentDictionary<string, DateTime> Locks { get; } = new();
+
+        public KeyedAsyncLock AcquireLocks { get; } = new();
 
         public static CacheInvalidationState ForMemoryManager(IMemoryCache? memoryCache)
         {

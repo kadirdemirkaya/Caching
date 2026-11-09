@@ -18,6 +18,7 @@ All notable changes to `Base.Caching` are documented in this file.
 - `AddCaching(IConfiguration)` no longer requires the `Caching:DistributedCache` section, and `AddCaching(IConfiguration, CacheConfiguration)` no longer requires `baseDistributedCacheConfiguration`: without them the distributed cache is disabled and `MemoryCacheManager` is registered. Both overloads (and the new one) share one registration path.
 - A Redis call that throws `OperationCanceledException` for a cancelled token is no longer handled as a connection failure: the exception propagates and no in-memory fallback runs. Other errors still fall back as before.
 - `CacheKey.CacheTime` is backed by `CacheKey.CacheDuration`; for a duration that is not a whole number of minutes it reads as the next whole minute. Minute-based keys behave as before.
+- The `DistributedCacheManager` constructor gained a trailing optional `BaseCacheConfiguration? cacheConfiguration` parameter. Source calls compile unchanged; binaries that call the constructor directly must be recompiled.
 
 ### Added
 - `BaseDistributedCacheConfiguration.AllowClearWithoutInstanceName` (`DistributedCache:AllowClearWithoutInstanceName`), default `false`.
@@ -25,6 +26,7 @@ All notable changes to `Base.Caching` are documented in this file.
 - `TimeSpan` expiration: `CacheKey(string, TimeSpan, params string[])`, `CacheKey.Create(string, TimeSpan, params string[])` and the `CacheKey.CacheDuration` property, so entries can live for less than a minute or for any duration.
 - Optional sliding expiration: `CacheKey.SlidingExpiration` (`TimeSpan?`, positive), applied by the in-memory and the distributed store and kept by `PrepareKey`.
 - Code-first registration: `AddCaching(Action<CacheOptions>)` with `CacheOptions.Cache` and `CacheOptions.DistributedCache`; without settings it registers the in-memory manager with the built-in times.
+- Opt-in stampede protection: `BaseCacheConfiguration.PreventConcurrentAcquire` (`Caching:Cache:PreventConcurrentAcquire`, or `options.Cache.PreventConcurrentAcquire`), default `false`. When `true`, concurrent `GetAsync` misses for the same key run the acquire function once per process (memory, distributed and hybrid managers); the other callers wait and read the cached value. An exception from the acquire function is not cached and does not block the waiting callers. New constructor `MemoryCacheManager(IMemoryCache, BaseCacheConfiguration?)` and optional parameter `cacheConfiguration` at the end of the `DistributedCacheManager` constructor carry the setting; existing constructor calls compile unchanged.
 
 ### Removed
 - Unused `Nito.AsyncEx` dependency.
