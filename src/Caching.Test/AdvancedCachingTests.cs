@@ -12,7 +12,7 @@ namespace Caching.Test
     [TestFixture]
     public class AdvancedCachingTests
     {
-        private ServiceProvider _serviceProvider;
+        private ServiceProvider? _serviceProvider;
 
         [TearDown]
         public void Cleanup()
@@ -128,7 +128,7 @@ namespace Caching.Test
             });
 
             // Read the data back, it should come from the fallback in-memory cache
-            string cachedValue = null;
+            string? cachedValue = null;
             Assert.DoesNotThrowAsync(async () =>
             {
                 cachedValue = await cacheManager.GetAsync<string>(cacheKey, () => "default_val");
@@ -176,7 +176,7 @@ namespace Caching.Test
                 await cacheManager.SetAsync(cacheKey, valueToCache);
             });
 
-            string cachedValue = null;
+            string? cachedValue = null;
             Assert.DoesNotThrowAsync(async () =>
             {
                 cachedValue = await cacheManager.GetAsync<string>(cacheKey, () => "default_val");
@@ -212,13 +212,13 @@ namespace Caching.Test
             Assert.IsNotNull(cacheManager);
 
             var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
-            var mc = cacheManager.GetType().GetField("_memoryCache", flags).GetValue(cacheManager);
-            var cm = cacheManager.GetType().GetField("_connectionMultiplexer", flags).GetValue(cacheManager);
+            var mc = cacheManager.GetType().GetField("_memoryCache", flags)!.GetValue(cacheManager);
+            var cm = cacheManager.GetType().GetField("_connectionMultiplexer", flags)!.GetValue(cacheManager);
 
             Console.WriteLine($"DIAG: _memoryCache is null: {mc == null}");
             Console.WriteLine($"DIAG: _connectionMultiplexer is null: {cm == null}");
 
-            var isConn = cacheManager.GetType().GetProperty("IsRedisConnected", flags).GetValue(cacheManager);
+            var isConn = cacheManager.GetType().GetProperty("IsRedisConnected", flags)!.GetValue(cacheManager);
             Console.WriteLine($"DIAG: IsRedisConnected: {isConn}");
 
             var key = new CacheKey("diag.key");

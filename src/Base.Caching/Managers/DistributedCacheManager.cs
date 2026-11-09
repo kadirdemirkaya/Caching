@@ -16,10 +16,10 @@ namespace Base.Caching.Managers
     {
         private readonly IDistributedCache _distributedCache;
         private readonly PerRequestCache _perRequestCache;
-        private readonly IConnectionMultiplexer _connectionMultiplexer;
-        private readonly BaseDistributedCacheConfiguration _distributedCacheConfiguration;
-        private readonly IMemoryCache _memoryCache;
-        private readonly ILogger<DistributedCacheManager> _logger;
+        private readonly IConnectionMultiplexer? _connectionMultiplexer;
+        private readonly BaseDistributedCacheConfiguration? _distributedCacheConfiguration;
+        private readonly IMemoryCache? _memoryCache;
+        private readonly ILogger<DistributedCacheManager>? _logger;
 
         private readonly CacheInvalidationState _fallbackState;
         private readonly ConcurrentDictionary<string, DateTime> _fallbackLocks;
@@ -27,10 +27,10 @@ namespace Base.Caching.Managers
         public DistributedCacheManager(
             IDistributedCache distributedCache, 
             IHttpContextAccessor httpContextAccessor,
-            IConnectionMultiplexer connectionMultiplexer = null,
-            BaseDistributedCacheConfiguration distributedCacheConfiguration = null,
-            IMemoryCache memoryCache = null,
-            ILogger<DistributedCacheManager> logger = null)
+            IConnectionMultiplexer? connectionMultiplexer = null,
+            BaseDistributedCacheConfiguration? distributedCacheConfiguration = null,
+            IMemoryCache? memoryCache = null,
+            ILogger<DistributedCacheManager>? logger = null)
         {
             _distributedCache = distributedCache;
             _perRequestCache = new PerRequestCache(httpContextAccessor);
@@ -63,6 +63,8 @@ namespace Base.Caching.Managers
         }
 
         private bool IsRedisConnected => _connectionMultiplexer != null && _connectionMultiplexer.IsConnected;
+
+        private IConnectionMultiplexer Connection => _connectionMultiplexer ?? throw new InvalidOperationException("No Redis connection is configured.");
 
         private async Task ExecuteWithFallbackAsync(Func<Task> action, Func<Task> fallbackAction, string operationName)
         {
@@ -99,12 +101,7 @@ namespace Base.Caching.Managers
                 _logger?.LogWarning(ex, "Redis connection failed during {Operation}. Falling back to memory cache.", operationName);
             }
 
-            if (fallbackAction != null)
-            {
-                return await fallbackAction();
-            }
-
-            return default;
+            return await fallbackAction();
         }
 
         private void ExecuteWithFallback(Action action, Action fallbackAction, string operationName)
@@ -139,12 +136,7 @@ namespace Base.Caching.Managers
                 _logger?.LogWarning(ex, "Redis connection failed during {Operation}. Falling back to memory cache.", operationName);
             }
 
-            if (fallbackAction != null)
-            {
-                return fallbackAction();
-            }
-
-            return default;
+            return fallbackAction();
         }
 
         private void SetFallback(CacheKey key, object data)
@@ -155,14 +147,26 @@ namespace Base.Caching.Managers
             }
         }
 
-        private T GetFallback<T>(CacheKey key)
+        private T? GetFallback<T>(CacheKey key)
         {
-            if (_memoryCache != null && _memoryCache.TryGetValue(key.Key, out T val))
-            {
-                return val;
-            }
-            return default;
+            return TryGetFallback(key, out T val) ? val : default;
         }
+
+        private bool TryGetFallback<T>(CacheKey key, out T value)
+        {
+            if (_memoryCache != null && _memoryCache.TryGetValue(key.Key, out T? cached))
+            {
+                value = cached!;
+                return true;
+            }
+
+            value = default!;
+            return false;
+        }
+
+        private static (bool isSet, T item) Miss<T>() => (false, default!);
+
+        private static T Deserialize<T>(string json) => JsonSerializer.Deserialize<T>(json)!;
 
         private void RemoveFallback(string key)
         {
@@ -204,20 +208,20 @@ namespace Base.Caching.Managers
                 {
                     var json = await _distributedCache.GetStringAsync(key.Key);
                     if (string.IsNullOrEmpty(json))
-                        return (false, default(T));
+                        return Miss<T>();
 
-                    var item = JsonSerializer.Deserialize<T>(json);
+                    var item = Deserialize<T>(json);
                     _perRequestCache.Set(key.Key, item);
                     return (true, item);
                 },
                 async () =>
                 {
-                    if (_memoryCache != null && _memoryCache.TryGetValue(key.Key, out T val))
+                    if (TryGetFallback(key, out T val))
                     {
                         _perRequestCache.Set(key.Key, val);
                         return (true, val);
                     }
-                    return (false, default(T));
+                    return Miss<T>();
                 },
                 "TryGetItemAsync"
             );
@@ -230,20 +234,20 @@ namespace Base.Caching.Managers
                 {
                     var json = _distributedCache.GetString(key.Key);
                     if (string.IsNullOrEmpty(json))
-                        return (false, default(T));
+                        return Miss<T>();
 
-                    var item = JsonSerializer.Deserialize<T>(json);
+                    var item = Deserialize<T>(json);
                     _perRequestCache.Set(key.Key, item);
                     return (true, item);
                 },
                 () =>
                 {
-                    if (_memoryCache != null && _memoryCache.TryGetValue(key.Key, out T val))
+                    if (TryGetFallback(key, out T val))
                     {
                         _perRequestCache.Set(key.Key, val);
                         return (true, val);
                     }
-                    return (false, default(T));
+                    return Miss<T>();
                 },
                 "TryGetItem"
             );
@@ -258,7 +262,7 @@ namespace Base.Caching.Managers
 
         private void Set(CacheKey key, object data)
         {
-            if ((key?.CacheTime ?? 0) <= 0 || data == null)
+            if (key is null || key.CacheTime <= 0 || data == null)
                 return;
 
             ExecuteWithFallback(
@@ -301,12 +305,12 @@ namespace Base.Caching.Managers
             return result;
         }
 
-        public T Get<T>(CacheKey key)
+        public T? Get<T>(CacheKey key)
         {
-            if ((key?.CacheTime ?? 0) <= 0)
-                return default!;
+            if (key is null || key.CacheTime <= 0)
+                return default;
 
-            return ExecuteWithFallback(
+            return ExecuteWithFallback<T?>(
                 () =>
                 {
                     var json = _distributedCache.GetString(key.Key);
@@ -327,7 +331,7 @@ namespace Base.Caching.Managers
 
         public async Task SetAsync(CacheKey key, object data)
         {
-            if ((key?.CacheTime ?? 0) <= 0 || data == null)
+            if (key is null || key.CacheTime <= 0 || data == null)
                 return;
 
             await ExecuteWithFallbackAsync(
@@ -442,13 +446,14 @@ namespace Base.Caching.Managers
         {
             var instanceName = _distributedCacheConfiguration?.InstanceName ?? string.Empty;
             var pattern = $"{EscapeKeyPattern(instanceName)}{EscapeKeyPattern(prefix)}*";
-            var database = _connectionMultiplexer.GetDatabase();
+            var connection = Connection;
+            var database = connection.GetDatabase();
             var batch = new List<RedisKey>(KeyDeleteBatchSize);
             var lockKeyPrefix = LockKeyPrefix;
 
-            foreach (var endpoint in _connectionMultiplexer.GetEndPoints())
+            foreach (var endpoint in connection.GetEndPoints())
             {
-                var server = _connectionMultiplexer.GetServer(endpoint);
+                var server = connection.GetServer(endpoint);
                 if (server.IsReplica)
                     continue;
 
@@ -534,7 +539,7 @@ namespace Base.Caching.Managers
                 () =>
                 {
                     var token = NewLockToken();
-                    var acquired = _connectionMultiplexer.GetDatabase().LockTake(GetLockKey(resource), token, expirationTime);
+                    var acquired = Connection.GetDatabase().LockTake(GetLockKey(resource), token, expirationTime);
                     return new LockLease(acquired ? LockPath.Redis : LockPath.None, token, localExpiry);
                 },
                 () => new LockLease(AcquireLocalLock(resource, localExpiry) ? LockPath.Local : LockPath.None, string.Empty, localExpiry),
@@ -550,7 +555,7 @@ namespace Base.Caching.Managers
                 async () =>
                 {
                     var token = NewLockToken();
-                    var acquired = await _connectionMultiplexer.GetDatabase().LockTakeAsync(GetLockKey(resource), token, expirationTime);
+                    var acquired = await Connection.GetDatabase().LockTakeAsync(GetLockKey(resource), token, expirationTime);
                     return new LockLease(acquired ? LockPath.Redis : LockPath.None, token, localExpiry);
                 },
                 () => Task.FromResult(new LockLease(AcquireLocalLock(resource, localExpiry) ? LockPath.Local : LockPath.None, string.Empty, localExpiry)),
@@ -568,7 +573,7 @@ namespace Base.Caching.Managers
 
             try
             {
-                if (!_connectionMultiplexer.GetDatabase().LockRelease(GetLockKey(resource), lease.Token))
+                if (!Connection.GetDatabase().LockRelease(GetLockKey(resource), lease.Token))
                     LogLockNotOwned(resource);
             }
             catch (Exception ex)
@@ -587,7 +592,7 @@ namespace Base.Caching.Managers
 
             try
             {
-                if (!await _connectionMultiplexer.GetDatabase().LockReleaseAsync(GetLockKey(resource), lease.Token))
+                if (!await Connection.GetDatabase().LockReleaseAsync(GetLockKey(resource), lease.Token))
                     LogLockNotOwned(resource);
             }
             catch (Exception ex)

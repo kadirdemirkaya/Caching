@@ -8,7 +8,14 @@ namespace Base.Caching.Interfaces
 
         Task<T> GetAsync<T>(CacheKey key, Func<T> acquire);
 
-        T Get<T>(CacheKey key);
+        /// <summary>
+        /// Returns the value cached under <paramref name="key"/> without loading it.
+        /// </summary>
+        /// <typeparam name="T">Type of the cached value.</typeparam>
+        /// <param name="key">Prepared cache key.</param>
+        /// <returns>The cached value, or <c>default</c> when nothing is cached, the key is <c>null</c> or its
+        /// <see cref="CacheKey.CacheTime"/> is not positive.</returns>
+        T? Get<T>(CacheKey key);
 
         T Get<T>(CacheKey key, Func<T> acquire);
 

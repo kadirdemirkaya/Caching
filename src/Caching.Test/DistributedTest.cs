@@ -10,9 +10,9 @@ namespace Caching.Test
 {
     public class Person
     {
-        public string Name { get; set; }
+        public string? Name { get; set; }
         public int Age { get; set; }
-        public string Role { get; set; }
+        public string? Role { get; set; }
     }
     public class DistributedTest
     {
@@ -99,9 +99,9 @@ namespace Caching.Test
                 return data;
             });
 
-            var cacheData2 = _staticMemoryCacheManager.GetAsync<User>(cacheKey, () => default(User));
+            var cacheData2 = _staticMemoryCacheManager.GetAsync<User?>(cacheKey, () => default(User));
 
-            var cacheData3 = _httpContextAccesor.HttpContext.Items[$"{cacheKey.Key}"];
+            var cacheData3 = _httpContextAccesor.HttpContext!.Items[$"{cacheKey.Key}"];
             var helperData = _httpContextAccesor.HttpContext.GetDataInRoute<User>(cacheKey.Key);
 
             if (cacheData3 is not null)
@@ -130,11 +130,11 @@ namespace Caching.Test
 
             //var cacheData1 = _staticMemoryCacheManager.Get<User>(cacheKey);
 
-            var cacheData2 = _staticMemoryCacheManager.GetAsync<User>(cacheKey, () => default(User));
+            var cacheData2 = _staticMemoryCacheManager.GetAsync<User?>(cacheKey, () => default(User));
 
             await _staticMemoryCacheManager.RemoveAsync(cacheKey);
 
-            var cacheData3 = _staticMemoryCacheManager.GetAsync<User>(cacheKey, () => default(User));
+            var cacheData3 = _staticMemoryCacheManager.GetAsync<User?>(cacheKey, () => default(User));
         }
 
         /// <summary>
@@ -273,7 +273,7 @@ namespace Caching.Test
                 return data;
             });
 
-            var cacheData2 = _staticMemoryCacheManager.GetAsync<User>(prepareKey2, () => default(User));
+            var cacheData2 = _staticMemoryCacheManager.GetAsync<User?>(prepareKey2, () => default(User));
 
             _locker.PerformActionWithLock(prepareKey.Key, TimeSpan.FromMinutes(10), () =>
             {
@@ -333,15 +333,15 @@ namespace Caching.Test
 
             await _staticMemoryCacheManager.SetAsync(cacheKey2, "string_route_helper_test_data");
 
-            var cacheData3 = _httpContextAccesor.HttpContext.GetDataInRoute<User>(cacheKey.Key);
+            var cacheData3 = _httpContextAccesor.HttpContext!.GetDataInRoute<User>(cacheKey.Key);
 
-            var cacheData4 = _httpContextAccesor.HttpContext.GetDataInRoute(cacheKey2.Key);
+            var cacheData4 = _httpContextAccesor.HttpContext!.GetDataInRoute(cacheKey2.Key);
 
-            _httpContextAccesor.HttpContext.SetDataInRoute(cacheKey2.Key, "string_route_helper_test_data_SET");
-            _httpContextAccesor.HttpContext.SetDataInRoute("set.key", "set_key_VALUE");
+            _httpContextAccesor.HttpContext!.SetDataInRoute(cacheKey2.Key, "string_route_helper_test_data_SET");
+            _httpContextAccesor.HttpContext!.SetDataInRoute("set.key", "set_key_VALUE");
 
-            var cacheData5 = _httpContextAccesor.HttpContext.GetDataInRoute("set.key");
-            var cacheData6 = _httpContextAccesor.HttpContext.GetDataInRoute(cacheKey2.Key);
+            var cacheData5 = _httpContextAccesor.HttpContext!.GetDataInRoute("set.key");
+            var cacheData6 = _httpContextAccesor.HttpContext!.GetDataInRoute(cacheKey2.Key);
 
             if (cacheData3 is not null && cacheData4 is not null)
                 Assert.Pass();

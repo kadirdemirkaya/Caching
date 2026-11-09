@@ -52,7 +52,7 @@ namespace Base.Caching.Managers
 
         internal void Set(CacheKey key, object data)
         {
-            if ((key?.CacheTime ?? 0) <= 0 || data == null)
+            if (key is null || key.CacheTime <= 0 || data == null)
                 return;
 
             _memoryCache.Set(key.Key, data, PrepareEntryOptions(key));
@@ -74,10 +74,10 @@ namespace Base.Caching.Managers
 
         public async Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire)
         {
-            if ((key?.CacheTime ?? 0) <= 0)
+            if (key is null || key.CacheTime <= 0)
                 return await acquire();
 
-            if (_memoryCache.TryGetValue(key.Key, out T result))
+            if (TryGet(key, out T result))
                 return result;
 
             result = await acquire();
@@ -90,7 +90,7 @@ namespace Base.Caching.Managers
 
         public async Task<T> GetAsync<T>(CacheKey key, Func<T> acquire)
         {
-            if ((key?.CacheTime ?? 0) <= 0)
+            if (key is null || key.CacheTime <= 0)
                 return acquire();
 
             var result = _memoryCache.GetOrCreate(key.Key, entry =>
@@ -103,15 +103,15 @@ namespace Base.Caching.Managers
             if (result == null)
                 await RemoveAsync(key);
 
-            return result;
+            return result!;
         }
 
         public T Get<T>(CacheKey key, Func<T> acquire)
         {
-            if ((key?.CacheTime ?? 0) <= 0)
+            if (key is null || key.CacheTime <= 0)
                 return acquire();
 
-            if (_memoryCache.TryGetValue(key.Key, out T result))
+            if (TryGet(key, out T result))
                 return result;
 
             result = acquire();
@@ -122,12 +122,12 @@ namespace Base.Caching.Managers
             return result;
         }
 
-        public T Get<T>(CacheKey key)
+        public T? Get<T>(CacheKey key)
         {
-            if ((key?.CacheTime ?? 0) <= 0)
+            if (key is null || key.CacheTime <= 0)
                 return default;
 
-            if (_memoryCache.TryGetValue(key.Key, out T result))
+            if (TryGet(key, out T result))
                 return result;
 
             return default;

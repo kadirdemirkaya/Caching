@@ -15,9 +15,9 @@ namespace Base.Caching.Managers
         public HybridCacheManager(
             MemoryCacheManager memoryCache,
             DistributedCacheManager distributedCache,
-            IConnectionMultiplexer connectionMultiplexer = null,
-            BaseDistributedCacheConfiguration configuration = null,
-            ILogger<HybridCacheManager> logger = null)
+            IConnectionMultiplexer? connectionMultiplexer = null,
+            BaseDistributedCacheConfiguration? configuration = null,
+            ILogger<HybridCacheManager>? logger = null)
         {
             _memoryCache = memoryCache;
             _distributedCache = distributedCache;
@@ -70,7 +70,7 @@ namespace Base.Caching.Managers
             return result;
         }
 
-        public T Get<T>(CacheKey key)
+        public T? Get<T>(CacheKey key)
         {
             if (key.CacheTime <= 0)
                 return default;
@@ -116,7 +116,7 @@ namespace Base.Caching.Managers
 
         public async Task SetAsync(CacheKey key, object data)
         {
-            if ((key?.CacheTime ?? 0) <= 0 || data == null)
+            if (key is null || key.CacheTime <= 0 || data == null)
                 return;
 
             await _distributedCache.SetAsync(key, data);

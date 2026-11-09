@@ -11,9 +11,9 @@ namespace Caching.Test
 {
     public class Student
     {
-        public string Name { get; set; }
+        public string? Name { get; set; }
         public int Age { get; set; }
-        public string Role { get; set; }
+        public string? Role { get; set; }
     }
     public class DistributedLockTest
     {
@@ -78,17 +78,17 @@ namespace Caching.Test
 
             tasks.Add(Task.Run(async () =>
             {
-                var cacheData = await _staticMemoryCacheManager.GetAsync<string>(CacheKey.Create("lock.key1"), () => default(string));
+                var cacheData = await _staticMemoryCacheManager.GetAsync<string?>(CacheKey.Create("lock.key1"), () => default(string));
                 await Console.Out.WriteLineAsync(cacheData);
             }));
             tasks.Add(Task.Run(async () =>
             {
-                var cacheData = await _staticMemoryCacheManager.GetAsync<string>(CacheKey.Create("lock.key2"), () => default(string));
+                var cacheData = await _staticMemoryCacheManager.GetAsync<string?>(CacheKey.Create("lock.key2"), () => default(string));
                 await Console.Out.WriteLineAsync(cacheData);
             }));
             tasks.Add(Task.Run(async () =>
             {
-                var cacheData = await _staticMemoryCacheManager.GetAsync<string>(CacheKey.Create("lock.key3"), () => default(string));
+                var cacheData = await _staticMemoryCacheManager.GetAsync<string?>(CacheKey.Create("lock.key3"), () => default(string));
                 await Console.Out.WriteLineAsync(cacheData);
             }));
 

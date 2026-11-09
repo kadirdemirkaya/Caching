@@ -36,7 +36,7 @@ namespace Base.Caching
 
                 services.AddSingleton<IConnectionMultiplexer>(sp =>
                 {
-                    var config = ConfigurationOptions.Parse(distributedCacheSection.ConnectionString);
+                    var config = ConfigurationOptions.Parse(distributedCacheSection.ConnectionString!);
                     config.AbortOnConnectFail = false;
                     return ConnectionMultiplexer.Connect(config);
                 });
@@ -59,7 +59,13 @@ namespace Base.Caching
             }
         }
 
-        public static void AddCaching(this IServiceCollection services, IConfiguration configuration, CacheConfiguration cacheConfiguration)
+        /// <summary>
+        /// Registers the cache managers from <paramref name="cacheConfiguration"/>.
+        /// </summary>
+        /// <param name="services">Service collection.</param>
+        /// <param name="configuration">Not read by this overload; may be <c>null</c>.</param>
+        /// <param name="cacheConfiguration">Cache and distributed cache settings; both must be set.</param>
+        public static void AddCaching(this IServiceCollection services, IConfiguration? configuration, CacheConfiguration cacheConfiguration)
         {
             var cacheSection = cacheConfiguration.baseCacheConfiguration;
             var distributedCacheSection = cacheConfiguration.baseDistributedCacheConfiguration;
@@ -86,7 +92,7 @@ namespace Base.Caching
 
                 services.AddSingleton<IConnectionMultiplexer>(sp =>
                 {
-                    var config = ConfigurationOptions.Parse(distributedCacheSection.ConnectionString);
+                    var config = ConfigurationOptions.Parse(distributedCacheSection.ConnectionString!);
                     config.AbortOnConnectFail = false;
                     return ConnectionMultiplexer.Connect(config);
                 });

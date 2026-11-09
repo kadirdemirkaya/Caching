@@ -297,7 +297,7 @@ namespace Caching.Test
             await AssertDocumentedMemoryPrefixSemanticsAsync(manager, manager.Get<string>);
         }
 
-        private static async Task AssertDocumentedMemoryPrefixSemanticsAsync(Base.Caching.Interfaces.ICacheManager manager, Func<CacheKey, string> get)
+        private static async Task AssertDocumentedMemoryPrefixSemanticsAsync(Base.Caching.Interfaces.ICacheManager manager, Func<CacheKey, string?> get)
         {
             var quickStart = manager.PrepareKey(new CacheKey("user.{0}", 10, "users"), 1);
             var untaggedWithMatchingName = new CacheKey("users.list", 10);

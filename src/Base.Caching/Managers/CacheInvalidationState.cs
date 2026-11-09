@@ -17,14 +17,14 @@ namespace Base.Caching.Managers
 
         public ConcurrentDictionary<string, DateTime> Locks { get; } = new();
 
-        public static CacheInvalidationState ForMemoryManager(IMemoryCache memoryCache)
+        public static CacheInvalidationState ForMemoryManager(IMemoryCache? memoryCache)
         {
             return memoryCache == null
                 ? _unboundMemoryManagerState
                 : _memoryManagerStates.GetValue(memoryCache, static _ => new CacheInvalidationState());
         }
 
-        public static CacheInvalidationState ForDistributedFallback(IMemoryCache memoryCache)
+        public static CacheInvalidationState ForDistributedFallback(IMemoryCache? memoryCache)
         {
             return memoryCache == null
                 ? _unboundDistributedFallbackState

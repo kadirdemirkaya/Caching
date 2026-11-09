@@ -16,11 +16,11 @@ namespace Base.Caching.Managers
 
         private readonly MemoryCacheManager _memoryCache;
         private readonly IConnectionMultiplexer _connectionMultiplexer;
-        private readonly ILogger _logger;
+        private readonly ILogger? _logger;
         private readonly object _subscribeLock = new();
         private bool _subscribed;
 
-        private HybridCacheInvalidationListener(MemoryCacheManager memoryCache, IConnectionMultiplexer connectionMultiplexer, string channelName, ILogger logger)
+        private HybridCacheInvalidationListener(MemoryCacheManager memoryCache, IConnectionMultiplexer connectionMultiplexer, string channelName, ILogger? logger)
         {
             _memoryCache = memoryCache;
             _connectionMultiplexer = connectionMultiplexer;
@@ -32,7 +32,7 @@ namespace Base.Caching.Managers
 
         public string ChannelName { get; }
 
-        public static HybridCacheInvalidationListener GetOrCreate(MemoryCacheManager memoryCache, IConnectionMultiplexer connectionMultiplexer, string channelName, ILogger logger)
+        public static HybridCacheInvalidationListener GetOrCreate(MemoryCacheManager memoryCache, IConnectionMultiplexer connectionMultiplexer, string channelName, ILogger? logger)
         {
             var byMemoryCache = _listeners.GetValue(connectionMultiplexer, static _ => new ConditionalWeakTable<MemoryCacheManager, ConcurrentDictionary<string, HybridCacheInvalidationListener>>());
             var byChannel = byMemoryCache.GetValue(memoryCache, static _ => new ConcurrentDictionary<string, HybridCacheInvalidationListener>());

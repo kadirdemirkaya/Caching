@@ -3,8 +3,15 @@ namespace Base.Caching.Configurations
     public class BaseDistributedCacheConfiguration
     {
         public bool Enabled { get; set; }
-        public string ConnectionString { get; set; }
-        public string InstanceName { get; set; }
+        /// <summary>
+        /// Redis connection string. Required when <see cref="Enabled"/> is <c>true</c>; <c>null</c> when not configured.
+        /// </summary>
+        public string? ConnectionString { get; set; }
+
+        /// <summary>
+        /// Prefix of every Redis key written by the cache. <c>null</c> when not configured.
+        /// </summary>
+        public string? InstanceName { get; set; }
         public bool HybridCacheEnabled { get; set; }
 
         /// <summary>

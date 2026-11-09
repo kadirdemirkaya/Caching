@@ -17,14 +17,14 @@ namespace Base.Caching
             _lockSlim = new ReaderWriterLockSlim();
         }
 
-        protected virtual IDictionary<object, object> GetItems()
+        protected virtual IDictionary<object, object?>? GetItems()
         {
             return _httpContextAccessor.HttpContext?.Items;
         }
 
         public virtual T Get<T>(string key, Func<T> acquire)
         {
-            IDictionary<object, object> items;
+            IDictionary<object, object?>? items;
 
             using (new ReaderWriteLockDisposable(_lockSlim, ReaderWriteLockType.Read))
             {
@@ -32,8 +32,9 @@ namespace Base.Caching
                 if (items == null)
                     return acquire();
 
-                if (items[key] != null)
-                    return (T)items[key];
+                var existing = items[key];
+                if (existing != null)
+                    return (T)existing;
             }
 
             var result = acquire();
@@ -47,7 +48,13 @@ namespace Base.Caching
             return result;
         }
 
-        public virtual void Set(string key, object data)
+        /// <summary>
+        /// Stores <paramref name="data"/> for the current HTTP request under <paramref name="key"/>.
+        /// Nothing is stored when <paramref name="data"/> is <c>null</c> or there is no current request.
+        /// </summary>
+        /// <param name="key">Cache key.</param>
+        /// <param name="data">Value to store; <c>null</c> is ignored.</param>
+        public virtual void Set(string key, object? data)
         {
             if (data == null)
                 return;
@@ -94,7 +101,7 @@ namespace Base.Caching
             }
         }
 
-        private static void TrackKey(IDictionary<object, object> items, string key)
+        private static void TrackKey(IDictionary<object, object?> items, string key)
         {
             if (!items.TryGetValue(_trackedKeysItemKey, out var tracked) || tracked is not HashSet<string> keys)
             {
