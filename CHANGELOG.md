@@ -9,6 +9,10 @@ All notable changes to `Base.Caching` are documented in this file.
 - `Microsoft.Extensions.Caching.StackExchangeRedis` raised to the latest patched release per target (8.0.33, 9.0.22, 10.0.14).
 - Hybrid invalidation channel is always subscribed and published as a literal channel name, so an `InstanceName` containing `*` no longer turns the subscription into a pattern.
 - Package version is defined once in `Directory.Build.props`.
+- **Breaking:** `DistributedCacheManager.ClearAsync` (and `RemoveByPrefixAsync` with an empty prefix) no longer deletes every key of the Redis database when `InstanceName` is empty; it skips Redis and logs a warning. Set `DistributedCache:AllowClearWithoutInstanceName` to `true` to keep the previous behaviour.
+
+### Added
+- `BaseDistributedCacheConfiguration.AllowClearWithoutInstanceName` (`DistributedCache:AllowClearWithoutInstanceName`), default `false`.
 
 ### Removed
 - Unused `Nito.AsyncEx` dependency.
@@ -20,6 +24,8 @@ All notable changes to `Base.Caching` are documented in this file.
 - `Caching:Cache:DefaultCacheTime` and `ShortTermCacheTime` (or `BaseCacheConfiguration` passed to `AddCaching`) are now applied: values greater than zero become the default and short-term cache times used by `PrepareKeyForDefaultCache`, `PrepareKeyForShortTermCache` and every `CacheKey` created without an explicit expiration (also keys created before `AddCaching`). `0` or missing keeps the built-in 120 and 1 minutes.
 - An explicit expiration on a `CacheKey` (`new CacheKey(key, expireMinute, ...)`, `CacheKey.Create(key, expireMinute, ...)` or setting `CacheTime`) is kept by `PrepareKey`; it previously fell back to the default time.
 - `HybridCacheManager` subscribes to the invalidation channel once per connection, memory cache and channel instead of once per scope, so handlers no longer accumulate with every request. All scopes of a process share one instance id, so a process ignores its own invalidation messages.
+- Redis `ClearAsync` and `RemoveByPrefixAsync` scan only primary servers (replicas are skipped) and delete the matching keys in batches of 1000 while scanning, instead of collecting every key and deleting them in one call.
+- Glob characters (`*`, `?`, `[`, `]`, `\`) in `InstanceName` or in a `RemoveByPrefixAsync` prefix are matched literally; they previously widened the deletion pattern to unrelated keys.
 
 ## 1.1.0 - 2026-05-24
 

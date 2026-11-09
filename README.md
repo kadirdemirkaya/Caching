@@ -90,6 +90,8 @@ public class MyService
 |-----|---------|
 | `Cache:DefaultCacheTime` | Minutes an entry lives when its `CacheKey` has no explicit expiration, and the time used by `PrepareKeyForDefaultCache`. `0` or missing keeps the built-in 120. |
 | `Cache:ShortTermCacheTime` | Minutes used by `PrepareKeyForShortTermCache`. `0` or missing keeps the built-in 1. |
+| `DistributedCache:InstanceName` | Prefix of every Redis key written by the package. `ClearAsync` deletes only keys with this prefix (scanned on primary servers, deleted in batches of 1000). Glob characters (`*`, `?`, `[`, `]`, `\`) in the instance name or in a `RemoveByPrefixAsync` prefix are matched literally. |
+| `DistributedCache:AllowClearWithoutInstanceName` | `false` (default): with an empty `InstanceName`, `ClearAsync` (and `RemoveByPrefixAsync` with an empty prefix) deletes nothing in Redis and logs a warning, so other applications' keys in the same database are kept. `true`: deletes every key of the database. |
 
 An explicit expiration always wins: `new CacheKey("user.{0}", 5, "users")` (or `CacheKey.Create(key, 5)`) is cached for 5 minutes, also after `PrepareKey`. The configured times are applied process-wide by `AddCaching` (through `CachingDefaults`).
 

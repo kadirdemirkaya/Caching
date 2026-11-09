@@ -7,6 +7,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 
 namespace Base.Caching.Managers
@@ -395,22 +396,64 @@ namespace Base.Caching.Managers
             _perRequestCache.Remove(cacheKey.Key);
         }
 
-        private IEnumerable<RedisKey> GetKeys(string pattern)
+        internal const int KeyDeleteBatchSize = 1000;
+
+        internal static string EscapeKeyPattern(string value)
         {
-            if (_connectionMultiplexer == null)
-                return Enumerable.Empty<RedisKey>();
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
 
-            var keys = new List<RedisKey>();
-            var endpoints = _connectionMultiplexer.GetEndPoints();
-            var database = _connectionMultiplexer.GetDatabase().Database;
-
-            foreach (var endpoint in endpoints)
+            var builder = new StringBuilder(value.Length);
+            foreach (var character in value)
             {
-                var server = _connectionMultiplexer.GetServer(endpoint);
-                keys.AddRange(server.Keys(database, pattern));
+                if (character is '*' or '?' or '[' or ']' or '\\')
+                    builder.Append('\\');
+
+                builder.Append(character);
             }
 
-            return keys.Distinct();
+            return builder.ToString();
+        }
+
+        private bool CanDeleteByPattern(string prefix, string operationName)
+        {
+            if (!string.IsNullOrEmpty(_distributedCacheConfiguration?.InstanceName)
+                || !string.IsNullOrEmpty(prefix)
+                || (_distributedCacheConfiguration?.AllowClearWithoutInstanceName ?? false))
+                return true;
+
+            _logger?.LogWarning(
+                "{Operation} skipped in Redis: InstanceName is empty, so the operation would delete every key of the database. Set an InstanceName or enable AllowClearWithoutInstanceName.",
+                operationName);
+            return false;
+        }
+
+        private async Task DeleteKeysByPrefixAsync(string prefix)
+        {
+            var instanceName = _distributedCacheConfiguration?.InstanceName ?? string.Empty;
+            var pattern = $"{EscapeKeyPattern(instanceName)}{EscapeKeyPattern(prefix)}*";
+            var database = _connectionMultiplexer.GetDatabase();
+            var batch = new List<RedisKey>(KeyDeleteBatchSize);
+
+            foreach (var endpoint in _connectionMultiplexer.GetEndPoints())
+            {
+                var server = _connectionMultiplexer.GetServer(endpoint);
+                if (server.IsReplica)
+                    continue;
+
+                await foreach (var key in server.KeysAsync(database.Database, pattern, KeyDeleteBatchSize))
+                {
+                    batch.Add(key);
+                    if (batch.Count < KeyDeleteBatchSize)
+                        continue;
+
+                    await database.KeyDeleteAsync(batch.ToArray());
+                    batch.Clear();
+                }
+            }
+
+            if (batch.Count > 0)
+                await database.KeyDeleteAsync(batch.ToArray());
         }
 
         public async Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters)
@@ -421,15 +464,8 @@ namespace Base.Caching.Managers
             await ExecuteWithFallbackAsync(
                 async () =>
                 {
-                    var db = _connectionMultiplexer.GetDatabase();
-                    var instanceName = _distributedCacheConfiguration?.InstanceName ?? string.Empty;
-                    var fullPattern = $"{instanceName}{prefix}*";
-                    var keys = GetKeys(fullPattern).ToArray();
-
-                    if (keys.Length > 0)
-                    {
-                        await db.KeyDeleteAsync(keys);
-                    }
+                    if (CanDeleteByPattern(prefix, "RemoveByPrefixAsync"))
+                        await DeleteKeysByPrefixAsync(prefix);
                 },
                 async () =>
                 {
@@ -444,15 +480,8 @@ namespace Base.Caching.Managers
             await ExecuteWithFallbackAsync(
                 async () =>
                 {
-                    var db = _connectionMultiplexer.GetDatabase();
-                    var instanceName = _distributedCacheConfiguration?.InstanceName ?? string.Empty;
-                    var fullPattern = $"{instanceName}*";
-                    var keys = GetKeys(fullPattern).ToArray();
-
-                    if (keys.Length > 0)
-                    {
-                        await db.KeyDeleteAsync(keys);
-                    }
+                    if (CanDeleteByPattern(string.Empty, "ClearAsync"))
+                        await DeleteKeysByPrefixAsync(string.Empty);
                 },
                 async () =>
                 {
