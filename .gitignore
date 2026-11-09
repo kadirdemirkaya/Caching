@@ -399,3 +399,13 @@ FodyWeavers.xsd
 *.jpg
 *.png
 /BlogWeb.Mvc/Data/Seeds/BlogDbSeedContext.cs
+
+# Local package output
+artifact/
+
+# Local-only working files
+/CLAUDE.md
+/roadmap.md
+/improvements.md
+/.claude/
+/docs/

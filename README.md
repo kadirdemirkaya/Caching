@@ -2,7 +2,7 @@
 
 | Package | Downloads | License |
 |---------|-----------|---------|
-| [![NuGet](https://img.shields.io/nuget/v/Base.Caching)](https://www.nuget.org/packages/Base.Caching) | [![Downloads](https://img.shields.io/nuget/dt/Base.Caching)](https://www.nuget.org/packages/Base.Caching) | [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kadirdemirkaya/Caching/blob/main/LICENSE) |
+| [![NuGet](https://img.shields.io/nuget/v/Base.Caching)](https://www.nuget.org/packages/Base.Caching) | [![Downloads](https://img.shields.io/nuget/dt/Base.Caching)](https://www.nuget.org/packages/Base.Caching) | [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/kadirdemirkaya/Caching/blob/main/LICENSE.txt) |
 
 A caching library supporting in-memory, distributed (Redis), and hybrid (L1/L2) cache with atomic distributed locking and automatic fallback.
 
