@@ -1,7 +1,6 @@
 using Base.Caching.Interfaces;
 using Base.Caching.Key;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Primitives;
 using System.Collections.Concurrent;
 
 namespace Base.Caching.Managers
@@ -10,13 +9,14 @@ namespace Base.Caching.Managers
     {
         private bool _disposed;
         private readonly IMemoryCache _memoryCache;
-        private static readonly ConcurrentDictionary<string, CancellationTokenSource> _prefixes = new();
-        private static CancellationTokenSource _clearToken = new();
-        private static readonly ConcurrentDictionary<string, DateTime> _inMemoryLocks = new();
+        private readonly CacheInvalidationState _state;
+        private readonly ConcurrentDictionary<string, DateTime> _inMemoryLocks;
 
         public MemoryCacheManager(IMemoryCache memoryCache)
         {
             _memoryCache = memoryCache;
+            _state = CacheInvalidationState.ForMemoryManager(memoryCache);
+            _inMemoryLocks = _state.Locks;
         }
 
         private MemoryCacheEntryOptions PrepareEntryOptions(CacheKey key)
@@ -26,14 +26,7 @@ namespace Base.Caching.Managers
                 AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(key.CacheTime)
             };
 
-            options.AddExpirationToken(new CancellationChangeToken(_clearToken.Token));
-            foreach (var keyPrefix in key.Prefixes.ToList())
-            {
-                var tokenSource = _prefixes.GetOrAdd(keyPrefix, new CancellationTokenSource());
-                options.AddExpirationToken(new CancellationChangeToken(tokenSource.Token));
-            }
-
-            return options;
+            return _state.AddExpirationTokens(options, key.Prefixes.ToList());
         }
 
         private void Remove(CacheKey cacheKey, params object[] cacheKeyParameters)
@@ -164,25 +157,14 @@ namespace Base.Caching.Managers
         {
             prefix = PrepareKeyPrefix(prefix, prefixParameters);
 
-            _prefixes.TryRemove(prefix, out var tokenSource);
-            tokenSource?.Cancel();
-            tokenSource?.Dispose();
+            _state.RemoveByPrefix(prefix);
 
             return Task.CompletedTask;
         }
 
         public Task ClearAsync()
         {
-            _clearToken.Cancel();
-            _clearToken.Dispose();
-
-            _clearToken = new CancellationTokenSource();
-
-            foreach (var prefix in _prefixes.Keys.ToList())
-            {
-                _prefixes.TryRemove(prefix, out var tokenSource);
-                tokenSource?.Dispose();
-            }
+            _state.Clear();
 
             return Task.CompletedTask;
         }

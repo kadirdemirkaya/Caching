@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Primitives;
 using StackExchange.Redis;
 using System.Collections.Concurrent;
 using System.Text.Json;
@@ -21,14 +20,8 @@ namespace Base.Caching.Managers
         private readonly IMemoryCache _memoryCache;
         private readonly ILogger<DistributedCacheManager> _logger;
 
-        private static readonly ConcurrentDictionary<string, CancellationTokenSource> _fallbackPrefixes = new();
-        private static CancellationTokenSource _fallbackClearToken = new();
-        private static readonly ConcurrentDictionary<string, DateTime> _fallbackLocks = new();
-
-        static DistributedCacheManager()
-        {
-            _fallbackClearToken = new CancellationTokenSource();
-        }
+        private readonly CacheInvalidationState _fallbackState;
+        private readonly ConcurrentDictionary<string, DateTime> _fallbackLocks;
 
         public DistributedCacheManager(
             IDistributedCache distributedCache, 
@@ -44,6 +37,8 @@ namespace Base.Caching.Managers
             _distributedCacheConfiguration = distributedCacheConfiguration;
             _memoryCache = memoryCache;
             _logger = logger;
+            _fallbackState = CacheInvalidationState.ForDistributedFallback(memoryCache);
+            _fallbackLocks = _fallbackState.Locks;
         }
 
         private DistributedCacheEntryOptions PrepareEntryOptions(CacheKey key)
@@ -63,14 +58,7 @@ namespace Base.Caching.Managers
                 AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(key.CacheTime)
             };
 
-            options.AddExpirationToken(new CancellationChangeToken(_fallbackClearToken.Token));
-            foreach (var keyPrefix in key.Prefixes.ToList())
-            {
-                var tokenSource = _fallbackPrefixes.GetOrAdd(keyPrefix, new CancellationTokenSource());
-                options.AddExpirationToken(new CancellationChangeToken(tokenSource.Token));
-            }
-
-            return options;
+            return _fallbackState.AddExpirationTokens(options, key.Prefixes.ToList());
         }
 
         private bool IsRedisConnected => _connectionMultiplexer != null && _connectionMultiplexer.IsConnected;
@@ -445,9 +433,7 @@ namespace Base.Caching.Managers
                 },
                 async () =>
                 {
-                    _fallbackPrefixes.TryRemove(prefix, out var tokenSource);
-                    tokenSource?.Cancel();
-                    tokenSource?.Dispose();
+                    _fallbackState.RemoveByPrefix(prefix);
                 },
                 "RemoveByPrefixAsync"
             );
@@ -470,17 +456,12 @@ namespace Base.Caching.Managers
                 },
                 async () =>
                 {
-                    _fallbackClearToken.Cancel();
-                    _fallbackClearToken.Dispose();
-                    _fallbackClearToken = new CancellationTokenSource();
-                    foreach (var prefix in _fallbackPrefixes.Keys.ToList())
-                    {
-                        _fallbackPrefixes.TryRemove(prefix, out var tokenSource);
-                        tokenSource?.Dispose();
-                    }
+                    _fallbackState.Clear();
                 },
                 "ClearAsync"
             );
+
+            _perRequestCache.Clear();
         }
 
         public bool PerformActionWithLock(string resource, TimeSpan expirationTime, Action action)

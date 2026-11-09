@@ -13,6 +13,11 @@ All notable changes to `Base.Caching` are documented in this file.
 ### Removed
 - Unused `Nito.AsyncEx` dependency.
 
+### Fixed
+- Prefix/clear invalidation and in-process locks of `MemoryCacheManager` and of the `DistributedCacheManager` in-memory fallback are now bound to their `IMemoryCache` instance instead of being process-wide, so `ClearAsync`, `RemoveByPrefixAsync` or a held lock in one service provider no longer affects another. Managers that share the same `IMemoryCache` (one container, any scope) still share them.
+- `ClearAsync` and `RemoveByPrefixAsync` are safe to call concurrently with writes; they no longer throw `ObjectDisposedException` under contention.
+- `DistributedCacheManager.ClearAsync` also clears the entries it cached for the current HTTP request, so a read in the same request after a clear no longer returns the cleared value. Other `HttpContext.Items` entries are left untouched.
+
 ## 1.1.0 - 2026-05-24
 
 ### Added

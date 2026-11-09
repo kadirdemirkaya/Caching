@@ -6,6 +6,8 @@ namespace Base.Caching
 {
     public class PerRequestCache
     {
+        private static readonly object _trackedKeysItemKey = new();
+
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ReaderWriterLockSlim _lockSlim;
 
@@ -38,7 +40,10 @@ namespace Base.Caching
             var result = acquire();
 
             using (new ReaderWriteLockDisposable(_lockSlim))
+            {
                 items[key] = result;
+                TrackKey(items, key);
+            }
 
             return result;
         }
@@ -55,7 +60,34 @@ namespace Base.Caching
                     return;
 
                 items[key] = data;
+                TrackKey(items, key);
             }
+        }
+
+        internal void Clear()
+        {
+            using (new ReaderWriteLockDisposable(_lockSlim))
+            {
+                var items = GetItems();
+                if (items == null || !items.TryGetValue(_trackedKeysItemKey, out var tracked) || tracked is not HashSet<string> keys)
+                    return;
+
+                foreach (var key in keys)
+                    items.Remove(key);
+
+                items.Remove(_trackedKeysItemKey);
+            }
+        }
+
+        private static void TrackKey(IDictionary<object, object> items, string key)
+        {
+            if (!items.TryGetValue(_trackedKeysItemKey, out var tracked) || tracked is not HashSet<string> keys)
+            {
+                keys = new HashSet<string>();
+                items[_trackedKeysItemKey] = keys;
+            }
+
+            keys.Add(key);
         }
 
         public virtual bool IsSet(string key)
