@@ -35,7 +35,22 @@ namespace Base.Caching.Managers
             _memoryCache.Remove(cacheKey.Key);
         }
 
-        private void Set(CacheKey key, object data)
+        internal void RemovePreparedKey(string key)
+        {
+            _memoryCache.Remove(key);
+        }
+
+        internal void RemovePreparedPrefix(string prefix)
+        {
+            _state.RemoveByPrefix(prefix);
+        }
+
+        internal void ClearAll()
+        {
+            _state.Clear();
+        }
+
+        internal void Set(CacheKey key, object data)
         {
             if ((key?.CacheTime ?? 0) <= 0 || data == null)
                 return;

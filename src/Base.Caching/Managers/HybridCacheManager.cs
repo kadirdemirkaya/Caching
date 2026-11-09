@@ -3,7 +3,6 @@ using Base.Caching.Interfaces;
 using Base.Caching.Key;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
-using System.Text.Json;
 
 namespace Base.Caching.Managers
 {
@@ -11,10 +10,7 @@ namespace Base.Caching.Managers
     {
         private readonly MemoryCacheManager _memoryCache;
         private readonly DistributedCacheManager _distributedCache;
-        private readonly IConnectionMultiplexer _connectionMultiplexer;
-        private readonly ILogger<HybridCacheManager> _logger;
-        private readonly string _channelName;
-        private readonly string _instanceId = Guid.NewGuid().ToString();
+        private readonly HybridCacheInvalidationListener? _invalidationListener;
 
         public HybridCacheManager(
             MemoryCacheManager memoryCache,
@@ -25,78 +21,17 @@ namespace Base.Caching.Managers
         {
             _memoryCache = memoryCache;
             _distributedCache = distributedCache;
-            _connectionMultiplexer = connectionMultiplexer;
-            _logger = logger;
 
             var instanceName = configuration?.InstanceName ?? "Base.Caching";
-            _channelName = $"{instanceName}:InvalidationChannel";
+            var channelName = $"{instanceName}:InvalidationChannel";
 
-            SubscribeToInvalidation();
-        }
-
-        private void SubscribeToInvalidation()
-        {
-            if (_connectionMultiplexer == null || !_connectionMultiplexer.IsConnected)
-                return;
-
-            try
-            {
-                var subscriber = _connectionMultiplexer.GetSubscriber();
-                subscriber.Subscribe(RedisChannel.Literal(_channelName), (channel, messageValue) =>
-                {
-                    try
-                      {
-                        var msg = JsonSerializer.Deserialize<CacheInvalidationMessage>((string?)messageValue);
-                        if (msg == null || msg.OriginatorId == _instanceId)
-                            return;
-
-                        _logger?.LogInformation("Received cache invalidation: {Action} for {Target}", msg.Action, msg.Target);
-
-                        if (msg.Action == "Remove")
-                        {
-                            _memoryCache.RemoveAsync(new CacheKey(msg.Target)).GetAwaiter().GetResult();
-                        }
-                        else if (msg.Action == "RemoveByPrefix")
-                        {
-                            _memoryCache.RemoveByPrefixAsync(msg.Target).GetAwaiter().GetResult();
-                        }
-                        else if (msg.Action == "Clear")
-                        {
-                            _memoryCache.ClearAsync().GetAwaiter().GetResult();
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger?.LogError(ex, "Error processing cache invalidation message");
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Error subscribing to cache invalidation channel");
-            }
+            if (connectionMultiplexer != null && memoryCache != null)
+                _invalidationListener = HybridCacheInvalidationListener.GetOrCreate(memoryCache, connectionMultiplexer, channelName, logger);
         }
 
         private void PublishInvalidation(string action, string target)
         {
-            if (_connectionMultiplexer == null || !_connectionMultiplexer.IsConnected)
-                return;
-
-            try
-            {
-                var subscriber = _connectionMultiplexer.GetSubscriber();
-                var msg = new CacheInvalidationMessage
-                {
-                    Action = action,
-                    Target = target,
-                    OriginatorId = _instanceId
-                };
-                subscriber.Publish(RedisChannel.Literal(_channelName), JsonSerializer.Serialize(msg));
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Error publishing invalidation message: {Action} for {Target}", action, target);
-            }
+            _invalidationListener?.Publish(action, target);
         }
 
         public async Task<T> GetAsync<T>(CacheKey key, Func<Task<T>> acquire)
@@ -150,7 +85,7 @@ namespace Base.Caching.Managers
 
             if (result != null)
             {
-                _memoryCache.SetAsync(key, result).GetAwaiter().GetResult();
+                _memoryCache.Set(key, result);
             }
 
             return result;
@@ -169,7 +104,7 @@ namespace Base.Caching.Managers
 
             if (result != null)
             {
-                _memoryCache.SetAsync(key, result).GetAwaiter().GetResult();
+                _memoryCache.Set(key, result);
             }
 
             return result;
@@ -182,7 +117,7 @@ namespace Base.Caching.Managers
             await _distributedCache.RemoveAsync(cacheKey, cacheKeyParameters);
             await _memoryCache.RemoveAsync(cacheKey, cacheKeyParameters);
 
-            PublishInvalidation("Remove", key.Key);
+            PublishInvalidation(HybridCacheInvalidationListener.RemoveAction, key.Key);
         }
 
         public async Task SetAsync(CacheKey key, object data)
@@ -193,7 +128,7 @@ namespace Base.Caching.Managers
             await _distributedCache.SetAsync(key, data);
             await _memoryCache.SetAsync(key, data);
 
-            PublishInvalidation("Remove", key.Key);
+            PublishInvalidation(HybridCacheInvalidationListener.RemoveAction, key.Key);
         }
 
         public async Task RemoveByPrefixAsync(string prefix, params object[] prefixParameters)
@@ -203,7 +138,7 @@ namespace Base.Caching.Managers
             await _distributedCache.RemoveByPrefixAsync(prefix, prefixParameters);
             await _memoryCache.RemoveByPrefixAsync(prefix, prefixParameters);
 
-            PublishInvalidation("RemoveByPrefix", formattedPrefix);
+            PublishInvalidation(HybridCacheInvalidationListener.RemoveByPrefixAction, formattedPrefix);
         }
 
         public async Task ClearAsync()
@@ -211,7 +146,7 @@ namespace Base.Caching.Managers
             await _distributedCache.ClearAsync();
             await _memoryCache.ClearAsync();
 
-            PublishInvalidation("Clear", string.Empty);
+            PublishInvalidation(HybridCacheInvalidationListener.ClearAction, string.Empty);
         }
 
         public bool PerformActionWithLock(string resource, TimeSpan expirationTime, Action action)
@@ -222,13 +157,6 @@ namespace Base.Caching.Managers
         public async Task<bool> PerformActionWithLockAsync(string resource, TimeSpan expirationTime, Func<Task> action)
         {
             return await _distributedCache.PerformActionWithLockAsync(resource, expirationTime, action);
-        }
-
-        private class CacheInvalidationMessage
-        {
-            public string Action { get; set; }
-            public string Target { get; set; }
-            public string OriginatorId { get; set; }
         }
     }
 }

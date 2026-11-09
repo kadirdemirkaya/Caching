@@ -19,6 +19,7 @@ All notable changes to `Base.Caching` are documented in this file.
 - `DistributedCacheManager.ClearAsync` also clears the entries it cached for the current HTTP request, so a read in the same request after a clear no longer returns the cleared value. Other `HttpContext.Items` entries are left untouched.
 - `Caching:Cache:DefaultCacheTime` and `ShortTermCacheTime` (or `BaseCacheConfiguration` passed to `AddCaching`) are now applied: values greater than zero become the default and short-term cache times used by `PrepareKeyForDefaultCache`, `PrepareKeyForShortTermCache` and every `CacheKey` created without an explicit expiration (also keys created before `AddCaching`). `0` or missing keeps the built-in 120 and 1 minutes.
 - An explicit expiration on a `CacheKey` (`new CacheKey(key, expireMinute, ...)`, `CacheKey.Create(key, expireMinute, ...)` or setting `CacheTime`) is kept by `PrepareKey`; it previously fell back to the default time.
+- `HybridCacheManager` subscribes to the invalidation channel once per connection, memory cache and channel instead of once per scope, so handlers no longer accumulate with every request. All scopes of a process share one instance id, so a process ignores its own invalidation messages.
 
 ## 1.1.0 - 2026-05-24
 
