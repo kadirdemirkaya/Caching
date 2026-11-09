@@ -4,6 +4,15 @@ All notable changes to `Base.Caching` are documented in this file.
 
 ## Unreleased
 
+### Changed
+- **Breaking:** target frameworks are now net8.0, net9.0 and net10.0; net6.0 and net7.0 are no longer built.
+- `Microsoft.Extensions.Caching.StackExchangeRedis` raised to the latest patched release per target (8.0.33, 9.0.22, 10.0.14).
+- Hybrid invalidation channel is always subscribed and published as a literal channel name, so an `InstanceName` containing `*` no longer turns the subscription into a pattern.
+- Package version is defined once in `Directory.Build.props`.
+
+### Removed
+- Unused `Nito.AsyncEx` dependency.
+
 ## 1.1.0 - 2026-05-24
 
 ### Added

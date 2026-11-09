@@ -116,7 +116,7 @@ dotnet add package Base.Caching --version 1.1.0
 
 ## Requirements
 
-- .NET 6.0+
+- .NET 8.0+ (net8.0, net9.0, net10.0)
 - Redis (optional, for distributed/hybrid features)
 - **ASP.NET Core** — this library depends on `Microsoft.AspNetCore.App`. For console/worker projects, add the following to your `.csproj`:
 

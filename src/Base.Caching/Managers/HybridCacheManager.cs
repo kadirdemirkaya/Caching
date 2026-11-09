@@ -42,11 +42,11 @@ namespace Base.Caching.Managers
             try
             {
                 var subscriber = _connectionMultiplexer.GetSubscriber();
-                subscriber.Subscribe(_channelName, (channel, messageValue) =>
+                subscriber.Subscribe(RedisChannel.Literal(_channelName), (channel, messageValue) =>
                 {
                     try
                       {
-                        var msg = JsonSerializer.Deserialize<CacheInvalidationMessage>(messageValue);
+                        var msg = JsonSerializer.Deserialize<CacheInvalidationMessage>((string?)messageValue);
                         if (msg == null || msg.OriginatorId == _instanceId)
                             return;
 
@@ -91,7 +91,7 @@ namespace Base.Caching.Managers
                     Target = target,
                     OriginatorId = _instanceId
                 };
-                subscriber.Publish(_channelName, JsonSerializer.Serialize(msg));
+                subscriber.Publish(RedisChannel.Literal(_channelName), JsonSerializer.Serialize(msg));
             }
             catch (Exception ex)
             {

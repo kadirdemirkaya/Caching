@@ -72,7 +72,7 @@ dotnet test
 dotnet pack -c Release
 ```
 
-Supports .NET 6.0, 7.0, 8.0, 9.0.
+Supports .NET 8.0, 9.0, 10.0.
 
 ## Requirements
 

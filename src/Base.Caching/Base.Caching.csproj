@@ -1,12 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFrameworks>net6.0;net7.0;net8.0;net9.0</TargetFrameworks>
+		<TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageId>Base.Caching</PackageId>
-		<Version>1.1.0</Version>
 		<RepositoryUrl>https://github.com/kadirdemirkaya/Caching</RepositoryUrl>
 		<Description>This project is a caching library for .NET applications. It supports both in-memory and distributed caching (like Redis). It helps manage cache easily in high-performance scenarios.</Description>
 		<PackageTags>caching;memorycache;distributed;redis;dotnet;performance</PackageTags>
@@ -29,24 +28,16 @@
 		<FrameworkReference Include="Microsoft.AspNetCore.App" />
 	</ItemGroup>
 
-	<ItemGroup Condition="'$(TargetFramework)' == 'net6.0'">
-		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="6.0.36" />
-		<PackageReference Include="Nito.AsyncEx" Version="5.1.2" />
-	</ItemGroup>
-
-	<ItemGroup Condition="'$(TargetFramework)' == 'net7.0'">
-		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="7.0.20" />
-		<PackageReference Include="Nito.AsyncEx" Version="5.1.2" />
-	</ItemGroup>
-
 	<ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
-		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="8.0.25" />
-		<PackageReference Include="Nito.AsyncEx" Version="5.1.2" />
+		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="8.0.33" />
 	</ItemGroup>
 
 	<ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
-		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="9.0.14" />
-		<PackageReference Include="Nito.AsyncEx" Version="5.1.2" />
+		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="9.0.22" />
+	</ItemGroup>
+
+	<ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.14" />
 	</ItemGroup>
 
 </Project>
